@@ -11,6 +11,8 @@
 // `check` needs neither.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { compile, version, use } from '../dist/xyt.mjs';
@@ -111,6 +113,24 @@ for (const s of opt.set || []) {
   inputs[m[1]] = known.kind === 'num' ? num('set', m[2], 0, -Infinity) : m[2];
 }
 
+// The page comes from a server on this machine, so video frames can travel back to it as raw bytes:
+// far faster than returning them from page.evaluate, which turns every frame into an 11 MB string.
+const token = randomBytes(16).toString('hex');
+let onFrame = null;
+const server = createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/') {
+    res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><canvas id="c"></canvas>');
+  } else if (req.method === 'POST' && req.url === `/frame/${token}` && onFrame) {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => onFrame(Buffer.concat(chunks)).then((ok) => res.writeHead(ok ? 204 : 500).end()));
+  } else {
+    res.writeHead(404).end();
+  }
+});
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const origin = `http://127.0.0.1:${server.address().port}`;
+
 const page = await openPage();
 try {
   if (mode === 'at') await renderFrame();
@@ -118,6 +138,7 @@ try {
   else await renderVideo();
 } finally {
   await page.context().browser().close();
+  server.close();
 }
 
 async function renderFrame() {
@@ -176,8 +197,10 @@ async function renderVideo() {
   const done = new Promise((resolve) => ffmpeg.on('close', resolve));
   ffmpeg.stdin.on('error', () => {}); // reported through the exit code below
   const start = Date.now();
-  for (let f = 0; f < frames; f++) {
-    const rgba = Buffer.from(await page.evaluate((t) => window.xytRaw(t), from + f / fps), 'base64');
+  let sent = 0;
+  // Each frame the page posts goes straight to ffmpeg; the reply waits until ffmpeg can take more.
+  onFrame = async (rgba) => {
+    if (ffmpeg.exitCode !== null || rgba.length !== w * h * 4) return false;
     if (!ffmpeg.stdin.write(rgba)) {
       await new Promise((resolve) => {
         const go = () => { ffmpeg.stdin.off('drain', go); ffmpeg.off('close', go); resolve(); };
@@ -185,9 +208,15 @@ async function renderVideo() {
         ffmpeg.on('close', go);
       });
     }
-    if (ffmpeg.exitCode !== null) break;
-    if (process.stderr.isTTY) process.stderr.write(`\rframe ${f + 1}/${frames}`);
-  }
+    sent++;
+    if (process.stderr.isTTY) {
+      const left = Math.round((Date.now() - start) / sent * (frames - sent) / 1000);
+      process.stderr.write(`\rframe ${sent}/${frames}, about ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left `);
+    }
+    return ffmpeg.exitCode === null;
+  };
+  await page.evaluate((job) => window.xytVideo(job), { url: `/frame/${token}`, from, fps, frames }).catch(() => {});
+  onFrame = null;
   ffmpeg.stdin.end();
   const code = await done;
   if (process.stderr.isTTY) process.stderr.write('\n');
@@ -213,7 +242,7 @@ async function openPage() {
     try {
       browser = await chromium.launch({ ...launch, args: ['--ignore-gpu-blocklist', ...launch.args] });
       const page = await browser.newPage();
-      await page.setContent('<!doctype html><canvas id="c"></canvas>');
+      await page.goto(origin);
       const ok = await page.evaluate(() => !!document.createElement('canvas').getContext('webgl'));
       if (!ok) { await browser.close(); lastError = new Error('no WebGL'); continue; }
       for (const f of ['xyt.min.js', 'xyt-text.min.js', 'xyt-text-cyrillic.min.js']) await page.addScriptTag({ path: fileURLToPath(new URL(`../dist/${f}`, import.meta.url)) });
@@ -236,18 +265,24 @@ function setUpPage({ source, inputs }) {
   const r = player.load(source);
   if (!r.ok) throw new Error(r.errors.map((e) => `line ${e.line}: ${e.message}`).join('\n'));
   window.xytDuration = r.duration;
-  const b64 = (bytes) => {
-    let bin = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    return btoa(bin);
-  };
   // even sizes when they go to a video encoder
   window.xytSize = (height, even = false) => {
     const w = even ? Math.round(height * r.aspect / 2) * 2 : Math.max(1, Math.round(height * r.aspect));
     player.setSize(w, height);
     return { w, h: height };
   };
-  window.xytRaw = (t) => b64(player.renderAt(t).readPixels());
+  // renders the frames of a video and posts each to the command line as raw RGBA, drawing the next
+  // frame while the last one is still on its way; stops when the command line answers with an error
+  window.xytVideo = async ({ url, from, fps, frames }) => {
+    let last = Promise.resolve(true);
+    for (let f = 0; f < frames; f++) {
+      const px = player.renderAt(from + f / fps).readPixels();
+      if (!(await last)) return;
+      // a Blob body: Chromium sends a bare Uint8Array about ten times slower
+      last = fetch(url, { method: 'POST', body: new Blob([px]) }).then((r) => r.ok, () => false);
+    }
+    await last;
+  };
   // tiles: [{ t, x, y }] drawn at w x h into a W x H image, with a time label under each when labels is set
   window.xytPng = (tiles, w, h, W, H, labels) => {
     const out = document.createElement('canvas');

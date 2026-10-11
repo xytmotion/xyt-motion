@@ -23,6 +23,8 @@ From the feedback of a model that wrote a one-minute cartoon in XYT.
   Russian alphabet in Hershey's serif Cyrillic. `xyt render --font file.svg`.
 - Text draws the curves of stroke fonts as smooth splines through the font's points, so large text has
   round curves instead of visible facets; real corners stay sharp.
+- `xyt render --mp4` is two to three times faster: frames travel from the browser as raw bytes over a
+  local connection while the next one is drawn. It shows the time left while it works.
 - New examples: bells, karaoke. Language version 0.3.
 
 ## 0.2.0
