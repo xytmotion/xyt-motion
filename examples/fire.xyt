@@ -1,0 +1,6 @@
+// Campfire flame: A flickering flame
+duration 4
+fill #120806
+let n = fbm(x * 6, y * 4 + t * 2.5)
+let f = y * 1.4 - abs(x - 0.5) * 2.6 - 0.55 + (n - 0.5) * 0.7
+fill mix(#ff3d00, #ffe08a, smoothstep(0.15, 0.6, f)) alpha=smoothstep(0, 0.06, f)

@@ -1,0 +1,24 @@
+// Watcher: eyes that follow the pointer. A page can change its mood and color live with inputs.
+input mood = 0.8 min=0 max=1
+input skin = #ffcf4a
+fill mix(#26325a, #0e1424, dist(x, y, 0.5, 0.5) * 1.6)
+circle cx=0.5 cy=0.52 r=0.36 color=skin
+circle cx=0.5 cy=0.52 r=0.36 color=black alpha=0.18 * smoothstep(0.18, 0.4, dist(x, y, 0.4, 0.4))
+circle cx=0.31 cy=0.6 r=0.05 color=#ff7a8a alpha=0.5 * mood blur=0.04
+circle cx=0.69 cy=0.6 r=0.05 color=#ff7a8a alpha=0.5 * mood blur=0.04
+
+define eye cx=0.5 cy=0.4
+  let a = atan2(my - cy, mx - cx)
+  let k = min(dist(mx, my, cx, cy) * 4, 1)
+  let open = 1 - step(0.97, fract(t * 0.23))
+  ellipse cx=cx cy=cy rx=0.07 ry=0.08 * open color=white
+  circle cx=cx + cos(a) * 0.035 * k cy=cy + sin(a) * 0.04 * k r=0.032 * open color=#1b1b2f
+  circle cx=cx + cos(a) * 0.035 * k - 0.01 cy=cy + sin(a) * 0.04 * k - 0.012 r=0.009 * open color=white
+end
+eye cx=0.38 cy=0.43
+eye cx=0.62 cy=0.43
+
+// the mouth goes from a frown (mood 0) through a flat line to a smile (mood 1)
+arc cx=0.5 cy=0.56 r=0.12 width=0.022 start=30 end=150 color=#5a2a1a alpha=smoothstep(0.55, 0.75, mood)
+line x1=0.43 y1=0.67 x2=0.57 y2=0.67 width=0.022 color=#5a2a1a alpha=clamp(1 - abs(mood - 0.5) * 5)
+arc cx=0.5 cy=0.79 r=0.12 width=0.022 start=210 end=330 color=#5a2a1a alpha=smoothstep(0.45, 0.25, mood)

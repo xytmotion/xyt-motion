@@ -1,0 +1,67 @@
+{
+  "name": "xyt-motion",
+  "version": "0.2.0",
+  "description": "XYT: a tiny language for pictures and motion as formulas of x, y and t, compiled to GPU shaders. Designed to be written by people and by LLMs.",
+  "author": "xytmotion",
+  "homepage": "https://xytmotion.github.io/xyt-motion/playground/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xytmotion/xyt-motion.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xytmotion/xyt-motion/issues"
+  },
+  "type": "module",
+  "main": "./dist/xyt.cjs",
+  "module": "./dist/xyt.mjs",
+  "types": "./dist/xyt.d.cts",
+  "unpkg": "./dist/xyt.min.js",
+  "jsdelivr": "./dist/xyt.min.js",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/xyt.d.mts",
+        "default": "./dist/xyt.mjs"
+      },
+      "require": {
+        "types": "./dist/xyt.d.cts",
+        "default": "./dist/xyt.cjs"
+      }
+    },
+    "./reference": "./docs/llm-reference.md",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "examples",
+    "README.md",
+    "DESIGN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs && node scripts/playground.mjs",
+    "test": "node --test test/compiler.test.mjs test/player.test.mjs",
+    "test:gpu": "node test/gpu.mjs",
+    "prepublishOnly": "npm run build && npm test",
+    "playground": "node scripts/playground.mjs"
+  },
+  "keywords": [
+    "animation",
+    "shader",
+    "webgl",
+    "glsl",
+    "sdf",
+    "generative",
+    "procedural",
+    "llm",
+    "motion-graphics",
+    "creative-coding"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "gifenc": "^1.0.3",
+    "playwright": "^1.56.0"
+  }
+}

@@ -1,0 +1,193 @@
+// Pip's Bouncy Day: a 30-second cartoon in four scenes. Characters are written once with define.
+duration 30
+bpm 120
+
+// ---------- characters (defined once, reused in every scene) ----------
+define pip cx=0.5 cy=0.6 s=1 sing=0 blink=0 wing=0 sq=0 hat=1 lx=0 ly=0
+  let rx = 0.12 * s * (1 + sq * 0.22)
+  let ry = 0.12 * s * (1 - sq * 0.22)
+  let by = cy + 0.12 * s - ry
+  ellipse cx=cx - 0.045*s cy=cy + 0.122*s rx=0.032*s ry=0.013*s color=#ff8a1f
+  ellipse cx=cx + 0.045*s cy=cy + 0.122*s rx=0.032*s ry=0.013*s color=#ff8a1f
+  ellipse cx=cx - rx*0.92 cy=by + 0.01*s - wing*0.035*s rx=0.032*s ry=0.058*s angle=-20 - wing*55 color=#ffb52e
+  ellipse cx=cx + rx*0.92 cy=by + 0.01*s - wing*0.035*s rx=0.032*s ry=0.058*s angle=20 + wing*55 color=#ffb52e
+  ellipse cx=cx cy=by rx=rx ry=ry color=mix(#ffec6e, #ffb52e, clamp((y - by + ry) / (2 * ry)))
+  ellipse cx=cx cy=by + 0.045*s rx=0.07*s ry=0.05*s color=#fff6c4 alpha=0.55 blur=0.03*s
+  ellipse cx=cx + 0.012*s cy=by - ry - 0.01*s rx=0.011*s ry=0.028*s angle=25 color=#ffb52e
+  ellipse cx=cx - 0.012*s cy=by - ry - 0.006*s rx=0.009*s ry=0.022*s angle=-25 color=#ffb52e
+  // eyes (blink closes them into happy little arcs)
+  let eo = 1 - blink
+  ellipse cx=cx - 0.042*s cy=by - 0.03*s rx=0.025*s ry=0.031*s*eo color=white
+  ellipse cx=cx + 0.042*s cy=by - 0.03*s rx=0.025*s ry=0.031*s*eo color=white
+  ellipse cx=cx - 0.04*s + lx*0.008*s cy=by - 0.027*s + ly*0.011*s rx=0.016*s ry=0.018*s*eo color=#2b1d16
+  ellipse cx=cx + 0.044*s + lx*0.008*s cy=by - 0.027*s + ly*0.011*s rx=0.016*s ry=0.018*s*eo color=#2b1d16
+  circle cx=cx - 0.035*s + lx*0.008*s cy=by - 0.034*s + ly*0.011*s r=0.0055*s color=white alpha=eo
+  circle cx=cx + 0.049*s + lx*0.008*s cy=by - 0.034*s + ly*0.011*s r=0.0055*s color=white alpha=eo
+  arc cx=cx - 0.042*s cy=by - 0.04*s r=0.02*s width=0.006*s start=35 end=145 color=#2b1d16 alpha=blink
+  arc cx=cx + 0.042*s cy=by - 0.04*s r=0.02*s width=0.006*s start=35 end=145 color=#2b1d16 alpha=blink
+  // cheeks and beak (the lower beak opens when Pip chirps)
+  circle cx=cx - 0.078*s cy=by + 0.012*s r=0.018*s color=#ff8fa3 alpha=0.7
+  circle cx=cx + 0.078*s cy=by + 0.012*s r=0.018*s color=#ff8fa3 alpha=0.7
+  ellipse cx=cx cy=by + 0.014*s + sing*0.012*s rx=0.015*s ry=0.004*s + sing*0.013*s color=#8c2f1c
+  tri x1=cx - 0.02*s y1=by + 0.012*s + sing*0.02*s x2=cx + 0.02*s y2=by + 0.012*s + sing*0.02*s x3=cx y3=by + 0.03*s + sing*0.024*s color=#f07a12
+  tri x1=cx - 0.024*s y1=by + 0.002*s x2=cx + 0.024*s y2=by + 0.002*s x3=cx y3=by + 0.024*s color=#ff9a2a
+  // the eggshell hat, cut with a zigzag computed per pixel
+  let hy = by - ry + 0.018*s
+  ellipse cx=cx cy=hy - 0.012*s rx=0.08*s ry=0.055*s color=mix(#ffffff, #eadcc8, clamp((x - cx) * 6 / s + 0.5)) alpha=hat * (y < hy + 0.012*s * pingpong((x - cx) * 28 / s))
+end
+
+define cloud cx=0.5 cy=0.3 s=1 tint=#ffffff face=0
+  circle cx=cx - 0.07*s cy=cy + 0.01*s r=0.05*s color=tint
+  circle cx=cx cy=cy - 0.02*s r=0.07*s color=tint
+  circle cx=cx + 0.075*s cy=cy + 0.005*s r=0.055*s color=tint
+  rect cx=cx cy=cy + 0.035*s w=0.25*s h=0.05*s radius=0.025*s color=tint
+  circle cx=cx - 0.028*s cy=cy + 0.005*s r=0.008*s color=#3a3050 alpha=face
+  circle cx=cx + 0.028*s cy=cy + 0.005*s r=0.008*s color=#3a3050 alpha=face
+  arc cx=cx cy=cy + 0.015*s r=0.02*s width=0.006*s start=25 end=155 color=#3a3050 alpha=face
+end
+
+define sun cx=0.8 cy=0.2 s=1 spin=0
+  repeat k 10
+    let a = k / 10 * tau + spin
+    line x1=cx + 0.105*s*cos(a) y1=cy + 0.105*s*sin(a) x2=cx + 0.145*s*cos(a) y2=cy + 0.145*s*sin(a) width=0.02*s color=#ffc43d
+  end
+  circle cx=cx cy=cy r=0.085*s color=mix(#fff07a, #ffbf2e, clamp((y - cy + 0.085*s) / (0.17*s)))
+  ellipse cx=cx - 0.03*s cy=cy - 0.015*s rx=0.009*s ry=0.013*s color=#5a3a1a
+  ellipse cx=cx + 0.03*s cy=cy - 0.015*s rx=0.009*s ry=0.013*s color=#5a3a1a
+  arc cx=cx cy=cy + 0.01*s r=0.035*s width=0.008*s start=25 end=155 color=#5a3a1a
+  circle cx=cx - 0.056*s cy=cy + 0.016*s r=0.013*s color=#ff8f6b alpha=0.6
+  circle cx=cx + 0.056*s cy=cy + 0.016*s r=0.013*s color=#ff8f6b alpha=0.6
+end
+
+define flower cx=0.5 cy=0.8 s=1 tint=#ff7ab6 sway=0
+  let hx = cx + sway * 0.035 * s
+  let hy = cy - 0.12 * s
+  line x1=cx y1=cy x2=hx y2=hy width=0.012*s color=#3f9a3a
+  ellipse cx=(cx + hx) / 2 + 0.02*s cy=cy - 0.05*s rx=0.024*s ry=0.01*s angle=-30 color=#4fb84a
+  repeat k 5
+    let a = k / 5 * tau + sway
+    circle cx=hx + 0.03*s*cos(a) cy=hy + 0.03*s*sin(a) r=0.022*s color=tint
+  end
+  circle cx=hx cy=hy r=0.019*s color=#ffd23f
+end
+
+define butterfly cx=0.5 cy=0.5 s=1 flap=0 tint=#8ec9ff
+  let w = 0.25 + 0.75 * abs(sin(flap))
+  ellipse cx=cx - 0.026*s*w cy=cy - 0.01*s rx=0.027*s*w ry=0.03*s angle=-20 color=tint
+  ellipse cx=cx + 0.026*s*w cy=cy - 0.01*s rx=0.027*s*w ry=0.03*s angle=20 color=tint
+  ellipse cx=cx - 0.018*s*w cy=cy + 0.018*s rx=0.018*s*w ry=0.02*s angle=20 color=tint * 0.85
+  ellipse cx=cx + 0.018*s*w cy=cy + 0.018*s rx=0.018*s*w ry=0.02*s angle=-20 color=tint * 0.85
+  ellipse cx=cx cy=cy rx=0.006*s ry=0.03*s color=#3a3050
+end
+
+define zed cx=0.5 cy=0.5 s=1 a=1
+  line x1=cx - 0.02*s y1=cy - 0.02*s x2=cx + 0.02*s y2=cy - 0.02*s width=0.008*s color=white alpha=a
+  line x1=cx + 0.02*s y1=cy - 0.02*s x2=cx - 0.02*s y2=cy + 0.02*s width=0.008*s color=white alpha=a
+  line x1=cx - 0.02*s y1=cy + 0.02*s x2=cx + 0.02*s y2=cy + 0.02*s width=0.008*s color=white alpha=a
+end
+
+// ---------- shared timing ----------
+// Pip chirps only at three moments: hello, while hopping, and at the rainbow
+let chirp = (t > 6.6) * (t < 8.2) + (t > 12.4) * (t < 13.8) + (t > 25.2) * (t < 26.6)
+let sing = chirp * exp(-fract(beat * 2) * 4)
+let blink = step(0.94, fract(t * 0.37 + 0.3))
+
+// ---------- 0-12 s: the egg hatches, the sun comes up ----------
+scene 0 12
+  let rise = ease(clamp((st - 6.5) / 2.5))
+  let pop = ease(clamp((st - 6) * 4))
+  fill mix(mix(#b8b4f5, #ffd3e2, y), mix(#62bdf6, #d9f2ff, y), rise)
+  sun cx=0.79 cy=0.88 - 0.64 * rise s=1.05 spin=st * 0.4
+  cloud cx=0.2 + st * 0.01 cy=0.22 s=0.9
+  cloud cx=0.6 - st * 0.006 cy=0.11 s=0.6
+  circle cx=0.12 cy=1.25 r=0.55 color=#9be070
+  circle cx=0.72 cy=1.47 r=0.8 color=#6cc94f
+  ellipse cx=0.5 cy=0.79 rx=0.21 ry=0.06 color=#6e4222
+  pip cx=0.5 cy=0.745 - 0.16 * pop - 0.012 * pulse * pop + (pop < 0.02) s=0.8 sing=sing * pop blink=blink * pop wing=(st > 10) * pingpong(beat) hat=step(0.5, pop) lx=(st > 8) * (st < 10) ly=-(st > 8) * (st < 10)
+  // whole egg, wobbling to the beat until it hatches at 6 s
+  let wob = sin(beat * pi) * (3 + 7 * (st > 4))
+  ellipse cx=0.5 cy=0.66 rx=0.105 ry=0.135 angle=wob color=mix(#fffdf7, #e8d8c2, clamp((x - 0.47) * 5)) alpha=st < 6
+  line x1=0.43 y1=0.64 x2=0.47 y2=0.67 width=0.006 color=#8a6a4a alpha=(st > 4) * (st < 6)
+  line x1=0.47 y1=0.67 x2=0.5 y2=0.63 width=0.006 color=#8a6a4a alpha=(st > 4) * (st < 6)
+  line x1=0.5 y1=0.63 x2=0.54 y2=0.67 width=0.006 color=#8a6a4a alpha=(st > 5) * (st < 6)
+  line x1=0.54 y1=0.67 x2=0.57 y2=0.64 width=0.006 color=#8a6a4a alpha=(st > 5) * (st < 6)
+  // bottom half of the shell after hatching
+  ellipse cx=0.5 cy=0.66 rx=0.105 ry=0.135 color=mix(#fffdf7, #e8d8c2, clamp((x - 0.47) * 5)) alpha=(st >= 6) * (y > 0.655 + 0.014 * pingpong((x - 0.5) * 18))
+  // nest front with straws
+  ellipse cx=0.5 cy=0.805 rx=0.23 ry=0.055 color=#8a5524
+  repeat i 9
+    line x1=0.3 + i * 0.05 y1=0.785 + 0.02 * hash(i) x2=0.335 + i * 0.05 y2=0.83 - 0.02 * hash(i + 9) width=0.008 color=#c48a4a
+  end
+  // sparkle burst when Pip pops out
+  let k = clamp((st - 6) * 1.4)
+  repeat i 7
+    star cx=0.5 + cos(i / 7 * tau) * 0.24 * k cy=0.55 + sin(i / 7 * tau) * 0.24 * k r=0.028 * (1 - k) angle=k * 90 color=gold alpha=(st > 6) * (1 - k)
+  end
+end
+
+// ---------- 12-20 s: hopping on the hills ----------
+scene 12 20
+  fill mix(#5cbcf5, #dff4ff, y)
+  sun cx=0.82 cy=0.17 s=0.8 spin=st * 0.5
+  cloud cx=fract(0.1 + st * 0.03) * 1.4 - 0.2 cy=0.2 s=0.8
+  cloud cx=fract(0.6 + st * 0.02) * 1.4 - 0.2 cy=0.33 s=0.55
+  circle cx=0.15 cy=1.2 r=0.5 color=#9be070
+  circle cx=0.88 cy=1.25 r=0.55 color=#86d65f
+  circle cx=0.5 cy=1.62 r=0.85 color=#62c44a
+  let bx = -0.15 + (st - 3.5) * 0.42
+  butterfly cx=bx cy=0.42 + 0.05 * sin(st * 5) s=1.1 flap=st * 18 tint=#8ec9ff
+  butterfly cx=bx - 0.16 cy=0.3 + 0.05 * sin(st * 4 + 1) s=0.9 flap=st * 20 + 1 tint=#ff9ecb
+  let hop = (st < 4) * 0.13 * sin(fract(beat) * pi)
+  let big = (st > 7) * 0.33 * sin(clamp(st - 7) * pi)
+  let wig = (st > 6) * (st < 7) * sin(st * 25) * 0.03
+  let land = (st < 4) * (1 - smoothstep(0, 0.25, sin(fract(beat) * pi)))
+  let watch = (st > 3.5) * (st < 6.5)
+  pip cx=0.5 + wig cy=0.71 - hop - big s=0.75 sing=sing blink=blink wing=(hop + big) * 4 sq=land * 0.9 lx=watch * clamp((bx - 0.5) * 4, -1, 1) ly=-watch
+  repeat i 5
+    flower cx=0.1 + i * 0.2 + 0.03 * hash(i) cy=0.95 + 0.03 * hash(i + 5) s=0.7 + 0.3 * hash(i + 2) tint=hsl(hash(i + 7) * 360, 0.8, 0.72) sway=sin(beat * pi + i) * 0.6
+  end
+end
+
+// ---------- 20-27 s: rain, puddles, then a rainbow ----------
+scene 20 27
+  let clear = ease(clamp((st - 3.5) / 1.5))
+  let rb = ease(clamp((st - 4) / 1.5))
+  fill mix(mix(#7f93ad, #b9c6d6, y), mix(#5cbcf5, #dff4ff, y), clear)
+  repeat i 6
+    arc cx=0.5 cy=0.78 r=0.42 - i * 0.035 width=0.037 start=180 end=180 + 180 * rb color=hsl(i * 50, 0.85, 0.66) alpha=rb > 0.01
+  end
+  circle cx=0.5 cy=1.62 r=0.85 color=mix(#4f9e44, #62c44a, clear)
+  cloud cx=0.11 cy=0.75 + (rb < 0.01) s=0.7 * rb face=rb
+  cloud cx=0.89 cy=0.75 + (rb < 0.01) s=0.7 * rb face=rb
+  cloud cx=0.25 - clear * 0.7 cy=0.14 s=1.3 tint=mix(#6b7488, #ffffff, clear)
+  cloud cx=0.72 + clear * 0.7 cy=0.11 s=1.4 tint=mix(#7a8399, #ffffff, clear)
+  ellipse cx=0.5 cy=0.865 rx=0.24 ry=0.045 color=mix(#5d7fa8, #7cc6ef, clear)
+  let rip = fract(beat)
+  ellipse cx=0.5 cy=0.865 rx=0.04 + 0.16 * rip ry=(0.04 + 0.16 * rip) * 0.2 stroke=0.004 color=white alpha=(1 - rip) * 0.7 * (1 - clear)
+  let hop = (st > 1.5) * (st < 3.5) * 0.09 * sin(fract(beat) * pi)
+  pip cx=0.5 cy=0.775 - hop s=0.75 sing=sing blink=blink wing=hop * 5 ly=-(st > 3.5)
+  repeat i 6
+    circle cx=0.5 + (i / 5 - 0.5) * 0.36 * rip cy=0.86 - 0.1 * sin(rip * pi) * (0.6 + hash(i)) r=0.009 color=#cfe8ff alpha=(st > 1.5) * (st < 3.5) * (1 - rip)
+  end
+  repeat i 28
+    let dy = fract(hash(i) + st * (1.2 + 0.4 * hash(i + 40)))
+    line x1=hash(i + 80) y1=dy * 1.2 - 0.1 x2=hash(i + 80) - 0.012 y2=dy * 1.2 - 0.05 width=0.006 color=#e2ecff alpha=0.85 * (1 - clear)
+  end
+end
+
+// ---------- 27-30 s: goodnight ----------
+scene 27 30
+  fill mix(#1a1745, #3b3a7a, y)
+  repeat i 22
+    star cx=hash(i + 3) cy=hash(i + 33) * 0.6 r=0.008 + 0.012 * hash(i + 66) angle=st * 20 color=#fff3b0 alpha=0.35 + 0.65 * pingpong(st * 1.5 + hash(i))
+  end
+  circle cx=0.78 cy=0.2 r=0.08 color=#fff1a8 alpha=smoothstep(0.068, 0.072, dist(x, y, 0.82, 0.175))
+  circle cx=0.5 cy=1.62 r=0.85 color=#2c5a3a
+  pip cx=0.5 cy=0.71 s=0.75 blink=1 sq=0.08 * sin(st * 3)
+  zed cx=0.6 + st * 0.05 cy=0.55 - st * 0.07 s=1 a=clamp(st * 2)
+  zed cx=0.66 + st * 0.04 cy=0.47 - st * 0.06 s=0.7 a=clamp(st * 2 - 1.5)
+end
+
+// ---------- cartoon "iris" transitions between scenes ----------
+let ir = min(t, min(abs(t - 12), min(abs(t - 20), min(abs(t - 27), abs(t - 30)))))
+fill #1d1a33 alpha=smoothstep(ir * 3.4 - 0.01, ir * 3.4 + 0.01, dist(x, y, 0.5, 0.6))

@@ -1,0 +1,16 @@
+// Analog clock: An analog clock showing 2:10 with a ticking second hand
+duration 60
+fill #e9e4da
+circle cx=0.5 cy=0.5 r=0.42 color=white
+ring cx=0.5 cy=0.5 r=0.42 width=0.02 color=#222
+repeat i 12
+  let a = i / 12 * tau
+  line x1=0.5 + 0.35 * sin(a) y1=0.5 - 0.35 * cos(a) x2=0.5 + 0.39 * sin(a) y2=0.5 - 0.39 * cos(a) width=0.012 color=#222
+end
+let s = floor(t) / 60 * tau
+let m = (10 + t / 60) / 60 * tau
+let h = (2 + 10 / 60) / 12 * tau
+line x1=0.5 y1=0.5 x2=0.5 + 0.2 * sin(h) y2=0.5 - 0.2 * cos(h) width=0.026 color=#222
+line x1=0.5 y1=0.5 x2=0.5 + 0.31 * sin(m) y2=0.5 - 0.31 * cos(m) width=0.016 color=#222
+line x1=0.5 - 0.06 * sin(s) y1=0.5 + 0.06 * cos(s) x2=0.5 + 0.36 * sin(s) y2=0.5 - 0.36 * cos(s) width=0.006 color=#d33
+circle cx=0.5 cy=0.5 r=0.018 color=#d33

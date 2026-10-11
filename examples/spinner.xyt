@@ -1,0 +1,8 @@
+// Loading spinner: A loading spinner: 12 dots in a circle with a bright head chasing its tail
+duration 1.2
+fill #10141c
+repeat i 12
+  let a = i / 12 * tau
+  let k = fract(i / 12 - p)
+  circle cx=0.5 + 0.28 * cos(a) cy=0.5 + 0.28 * sin(a) r=0.03 + 0.02 * k color=hsl(195 + i * 4, 0.8, 0.62) alpha=0.15 + 0.85 * k
+end

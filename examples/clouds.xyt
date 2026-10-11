@@ -1,0 +1,5 @@
+// Drifting clouds: Soft clouds drifting across a blue sky
+duration 10
+fill mix(#3f86d6, #cfe6fb, y)
+let c = fbm(x * 3 + t * 0.12, y * 4.5)
+fill white alpha=smoothstep(0.48, 0.72, c) * (1.15 - y)

@@ -1,0 +1,9 @@
+// Sunset over the sea: A sun setting into the sea, gradient sky, shimmering reflection
+duration 8
+let sunY = 0.34 + 0.3 * p
+fill mix(mix(#1b1f4a, #e8566c, y * 1.6), #ffb35c, smoothstep(0.3, 0.62, y))
+circle cx=0.5 cy=sunY r=0.22 color=#ffd27a alpha=0.3 blur=0.16
+circle cx=0.5 cy=sunY r=0.11 color=mix(#fff4c2, #ffc04d, (y - sunY + 0.11) * 4)
+rect cx=0.5 cy=0.81 w=1 h=0.38 color=mix(#2b2f5e, #0d1030, (y - 0.62) * 2.6)
+let shimmer = step(0.55, noise(x * 25, y * 90 - t * 3))
+fill #ffc46b alpha=shimmer * smoothstep(0.14, 0, abs(x - 0.5)) * smoothstep(0.9, 0.63, y) * (0.3 + y) * (1 - p * 0.6) * (y > 0.62)

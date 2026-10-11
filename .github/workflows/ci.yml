@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # dist/ and the playground are committed (GitHub Pages serves them), so they must match src/
+      - name: Built files are up to date
+        run: git diff --exit-code -- dist docs/llm-reference.md playground/index.html
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:gpu

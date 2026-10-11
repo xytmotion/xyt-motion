@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>XYT playground</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #eef2f1; --paper-2: #e2e9e7; --ink: #17212b; --ink-2: #4e5d66; --rule: #c6d3d0;
+  --cobalt: #2340c8; --on-cobalt: #ffffff; --bad: #c22f29; --warn: #9a6400; --good: #1d7a4c; --code: #f8fbfa;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10171b; --paper-2: #172227; --ink: #e2eae8; --ink-2: #9cadb2; --rule: #2a3a3f;
+    --cobalt: #90a4ff; --on-cobalt: #0b1433; --bad: #ff7d75; --warn: #f2c14e; --good: #62d69c; --code: #0b1114; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #10171b; --paper-2: #172227; --ink: #e2eae8; --ink-2: #9cadb2; --rule: #2a3a3f;
+  --cobalt: #90a4ff; --on-cobalt: #0b1433; --bad: #ff7d75; --warn: #f2c14e; --good: #62d69c; --code: #0b1114; color-scheme: dark;
+}
+:root { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+html { scroll-padding-top: env(safe-area-inset-top, 0px); -webkit-text-size-adjust: 100%; }
+*, *::before, *::after { box-sizing: inherit; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.55 var(--sans); }
+a { color: var(--cobalt); }
+button, input, select { font: inherit; }
+:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+
+.wrap { max-width: 1160px; margin: 0 auto; padding: 20px 18px 56px; }
+.layout { display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr); }
+.layout > * { min-width: 0; }
+@media (min-width: 920px) {
+  .layout { grid-template-columns: minmax(380px, 490px) minmax(0, 1fr); align-items: start; gap: 44px; }
+  .left { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); }
+}
+
+header h1 { margin: 0; font: 600 15px/1.2 var(--sans); letter-spacing: 0.02em; color: var(--ink-2); }
+.formula { margin: 6px 0 10px; font: 500 clamp(26px, 8vw, 40px)/1.05 var(--mono); letter-spacing: -0.02em; white-space: nowrap; }
+.formula .var { color: var(--cobalt); }
+.lede { margin: 0 0 18px; max-width: 34em; color: var(--ink-2); }
+
+.stage { display: grid; grid-template-columns: 32px minmax(0, 1fr); grid-template-rows: 22px auto; }
+.corner { font: 500 11px/22px var(--mono); color: var(--ink-2); text-align: center; }
+.xr, .yr { position: relative; font: 500 10.5px/1 var(--mono); color: var(--ink-2); }
+.xr { border-bottom: 1px solid var(--ink); }
+.yr { border-right: 1px solid var(--ink); }
+.tick { position: absolute; background: var(--ink); }
+.xr .tick { bottom: 0; width: 1px; height: 5px; }
+.xr .tick.major { height: 9px; }
+.yr .tick { right: 0; height: 1px; width: 5px; }
+.yr .tick.major { width: 9px; }
+.xr .lab { position: absolute; top: 1px; transform: translateX(-50%); }
+.yr .lab { position: absolute; right: 11px; transform: translateY(-50%); }
+.xr .lab.first { transform: none; } .xr .lab.last { transform: translateX(-100%); }
+.yr .lab.first { transform: none; } .yr .lab.last { transform: translateY(-100%); }
+.view { position: relative; background: #000; touch-action: none; cursor: crosshair; }
+.view canvas { display: block; width: 100%; }
+.hair { position: absolute; pointer-events: none; background: rgba(255, 255, 255, 0.75); mix-blend-mode: difference; display: none; }
+.hair.h { left: 0; right: 0; height: 1px; } .hair.v { top: 0; bottom: 0; width: 1px; }
+.probe { display: flex; align-items: center; gap: 10px; margin: 10px 0 0 32px; min-height: 22px; font: 13px/1.3 var(--mono); color: var(--ink-2); white-space: pre-wrap; }
+.swatch { width: 18px; height: 18px; border: 1px solid var(--rule); flex: none; }
+
+.transport { display: flex; align-items: center; gap: 12px; margin: 12px 0 0 32px; }
+.play { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--cobalt); color: var(--on-cobalt); display: grid; place-items: center; cursor: pointer; flex: none; }
+.play svg { width: 18px; height: 18px; }
+input[type=range] { flex: 1; min-width: 0; accent-color: var(--cobalt); height: 28px; }
+.clock { font: 13px/1.2 var(--mono); color: var(--ink-2); text-align: right; min-width: 92px; }
+.scenes { position: relative; height: 34px; margin: 10px 0 0 32px; }
+.scene { position: absolute; top: 0; bottom: 0; border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink-2); border-radius: 4px;
+  font: 500 12.5px/1 var(--sans); cursor: pointer; overflow: hidden; white-space: nowrap; padding: 0 4px; }
+.scene[aria-current="true"] { border-color: var(--cobalt); color: var(--ink); box-shadow: inset 0 -3px 0 var(--cobalt); }
+.playhead { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); pointer-events: none; }
+
+.inputs { margin: 14px 0 0 32px; display: grid; gap: 8px; }
+.inputs .row { display: grid; grid-template-columns: 7em minmax(0, 1fr) 4.5em; align-items: center; gap: 10px; font-size: 14px; }
+.inputs .name { font-family: var(--mono); font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+.inputs .val { font: 13px var(--mono); color: var(--ink-2); text-align: right; }
+.inputs input[type=color] { width: 44px; height: 30px; border: 1px solid var(--rule); border-radius: 4px; background: none; padding: 2px; }
+.hint { margin: 10px 0 0 32px; font-size: 14px; color: var(--ink-2); }
+
+section { padding: 26px 0; border-top: 1px solid var(--rule); }
+section:first-child { padding-top: 0; border-top: 0; }
+h2 { margin: 0 0 6px; font: 600 21px/1.25 var(--sans); }
+h3 { margin: 18px 0 4px; font: 600 16px/1.3 var(--sans); }
+.note { margin: 0 0 14px; color: var(--ink-2); max-width: 40em; }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 12px; scrollbar-width: thin; }
+.chip { flex: none; border: 1px solid var(--rule); background: transparent; color: var(--ink); border-radius: 999px; padding: 7px 14px; cursor: pointer; font-size: 14px; white-space: nowrap; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.editor { width: 100%; min-height: 240px; resize: vertical; border: 1px solid var(--rule); border-radius: 6px; background: var(--code); color: var(--ink);
+  font: 16px/1.6 var(--mono); padding: 12px 14px; white-space: pre; overflow: auto; tab-size: 2; }
+@media (min-width: 920px) { .editor { font-size: 14px; min-height: 300px; } }
+.status { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
+.status .ok { color: var(--good); font-weight: 500; }
+.status .bad { color: var(--bad); font-weight: 500; }
+.errs { list-style: none; margin: 8px 0 0; padding: 0; }
+.errs button { all: unset; cursor: pointer; display: block; padding: 6px 10px; margin: 0 0 4px; border-left: 3px solid var(--bad); background: var(--paper-2); font: 14px/1.4 var(--mono); color: var(--ink); border-radius: 0 4px 4px 0; }
+.errs .warn button { border-left-color: var(--warn); }
+.errs b { color: var(--bad); font-weight: 600; }
+.errs .warn b { color: var(--warn); }
+
+.btn { border: 0; border-radius: 6px; padding: 10px 16px; background: var(--cobalt); color: var(--on-cobalt); font-weight: 600; cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--cobalt); border: 1px solid var(--cobalt); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.msg { margin: 10px 0 0; font-size: 14px; color: var(--ink-2); min-height: 1em; }
+.msg.bad { color: var(--bad); }
+
+.bars { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; align-items: center; font-size: 14px; margin-top: 12px; }
+.bars .lab { color: var(--ink-2); }
+.bars .track { position: relative; height: 22px; }
+.bars .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink-2); opacity: 0.55; border-radius: 2px; min-width: 2px; }
+.bars .fill.me { background: var(--cobalt); opacity: 1; }
+.bars .val { position: absolute; top: 2px; font: 12.5px/18px var(--mono); white-space: nowrap; padding-left: 6px; }
+.scale { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; }
+details { margin-top: 10px; }
+summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+pre.spec { background: var(--code); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px; overflow-x: auto; font: 13px/1.55 var(--mono); }
+/*HOOK:css*/
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="layout">
+    <div class="left">
+      <header>
+        <h1>XYT playground</h1>
+        <p class="formula" aria-label="color equals f of x, y, t">color = f(<span class="var">x</span>, <span class="var">y</span>, <span class="var">t</span>)</p>
+        <p class="lede">Every pixel is a formula of its position and the time. A few lines of text compile to a GPU shader that paints the frame, at any resolution.</p>
+      </header>
+      <div class="stage" id="stage">
+        <div class="corner">0</div>
+        <div class="xr" id="xr" aria-hidden="true"></div>
+        <div class="yr" id="yr" aria-hidden="true"></div>
+        <div class="view" id="view">
+          <canvas id="cv" aria-label="Animation preview"></canvas>
+          <div class="hair h" id="hh"></div><div class="hair v" id="hv"></div>
+        </div>
+      </div>
+      <div class="probe"><span class="swatch" id="sw" hidden></span><span id="probeTxt">Touch the picture to read f(x, y, t) at that pixel.</span></div>
+      <div class="transport">
+        <button class="play" id="play" aria-label="Pause"><svg viewBox="0 0 20 20" id="playIcon"></svg></button>
+        <input type="range" id="scrub" min="0" max="4" step="0.01" value="0" aria-label="Time">
+        <div class="clock" id="clock">0.00 / 4 s</div>
+      </div>
+      <div class="scenes" id="scenes" hidden></div>
+      <div class="inputs" id="inputs" hidden></div>
+      <p class="hint" id="pointerHint" hidden>Move over the picture: mx and my follow your pointer.</p>
+    </div>
+
+    <div class="right">
+      <section>
+        <h2>Code</h2>
+        <p class="note">Pick an example or edit the text. It recompiles as you type, and the last working version keeps playing while there are errors.</p>
+        <div class="chips" id="chips" role="group" aria-label="Examples"></div>
+        <textarea class="editor" id="ed" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="XYT program"></textarea>
+        <div class="status" id="status"></div>
+        <ul class="errs" id="errs"></ul>
+      </section>
+      <!--HOOK:sections-->
+      <section>
+        <h2>Measure this animation</h2>
+        <p class="note">Renders its first 4 seconds at 30 fps and 256 pixels tall, then compares the program text with storing the pixels, plain or run-length encoded.</p>
+        <button class="btn" id="measBtn">Measure</button>
+        <div id="measOut"></div>
+      </section>
+      <section>
+        <h2>Language reference</h2>
+        <p class="note">The compact reference written for language models. The full one is in docs/language.md.</p>
+        <details><summary>Show the reference</summary><pre class="spec" id="spec"></pre></details>
+      </section>
+      <!--HOOK:after-->
+    </div>
+  </div>
+</div>
+<!--HOOK:bundle-->
+<script>
+const EXAMPLES = /*HOOK:examples*/[];
+const app = (function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const ed = $('ed'), cv = $('cv'), view = $('view');
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const kb = (n) => n < 1000 ? n + ' B' : n < 1e6 ? (n / 1000).toFixed(n < 1e4 ? 1 : 0) + ' KB' : (n / 1e6).toFixed(n < 1e7 ? 2 : 1) + ' MB';
+  const bytesOf = (s) => new TextEncoder().encode(s).length;
+  const fmtNum = (v) => String(+v.toFixed(2));
+  $('spec').textContent = XYT.reference;
+
+  let player;
+  try {
+    player = new XYT.Player(cv, { autoplay: !reduce, reducedMotion: 'play' });
+  } catch (e) {
+    $('probeTxt').textContent = e.message;
+    return {};
+  }
+
+  // ---------- rulers that follow the canvas shape ----------
+  function rulers(aspect) {
+    const xr = $('xr'), yr = $('yr');
+    xr.innerHTML = ''; yr.innerHTML = '';
+    const add = (el, axis, pos, major, label, cls) => {
+      const tk = document.createElement('div'); tk.className = 'tick' + (major ? ' major' : '');
+      tk.style[axis === 'x' ? 'left' : 'top'] = pos + '%'; el.appendChild(tk);
+      if (label != null) { const lb = document.createElement('div'); lb.className = 'lab ' + cls; lb.textContent = label; lb.style[axis === 'x' ? 'left' : 'top'] = pos + '%'; el.appendChild(lb); }
+    };
+    const nx = Math.round(aspect / 0.05);
+    for (let i = 0; i <= nx; i++) add(xr, 'x', i / nx * 100, i % 5 === 0, i === 0 ? 'x' : i === nx ? fmtNum(aspect) : (i === Math.round(nx / 2) ? fmtNum(aspect / 2) : null), i === 0 ? 'first' : i === nx ? 'last' : '');
+    for (let i = 0; i <= 20; i++) add(yr, 'y', i * 5, i % 5 === 0, i === 0 ? 'y' : i === 20 ? '1' : i === 10 ? '0.5' : null, i === 0 ? 'first' : i === 20 ? 'last' : '');
+    $('stage').style.maxWidth = aspect < 1 ? `calc(${aspect} * min(72vh, 680px) + 32px)` : '';
+  }
+
+  // ---------- compile + status ----------
+  const status = $('status'), errs = $('errs');
+  function showList(list, kind) {
+    for (const e of list.slice(0, 6)) {
+      const li = document.createElement('li'); if (kind === 'warn') li.className = 'warn';
+      const b = document.createElement('button'); const strong = document.createElement('b');
+      strong.textContent = e.line ? 'Line ' + e.line + ': ' : (kind === 'warn' ? 'Note: ' : '');
+      b.appendChild(strong); b.appendChild(document.createTextNode(e.message));
+      b.onclick = () => selectLine(e.line);
+      li.appendChild(b); errs.appendChild(li);
+    }
+  }
+  function selectLine(n) {
+    if (!n) return;
+    const lines = ed.value.split('\n'); let s = 0;
+    for (let i = 0; i < n - 1 && i < lines.length; i++) s += lines[i].length + 1;
+    ed.focus(); ed.setSelectionRange(s, s + (lines[n - 1] || '').length);
+  }
+  let shapeKey = '';
+  function recompile() {
+    const r = player.load(ed.value);
+    errs.innerHTML = '';
+    if (!r.ok) {
+      status.innerHTML = '';
+      const a = document.createElement('span'); a.className = 'bad'; a.textContent = r.errors.length + (r.errors.length === 1 ? ' problem' : ' problems');
+      const b = document.createElement('span'); b.textContent = player.result ? 'Still showing the last working version' : 'Nothing to show yet';
+      status.append(a, b); showList(r.errors, 'error');
+      return r;
+    }
+    const b = bytesOf(ed.value);
+    status.innerHTML = '';
+    for (const [txt, cls] of [['Compiled', 'ok'], [r.cost + (r.cost === 1 ? ' shape' : ' shapes') + ' per pixel'], [kb(b) + ', about ' + Math.round(b / 4).toLocaleString() + ' tokens'], [r.aspectLabel + ' canvas, ' + fmtNum(r.duration) + ' s']]) {
+      const s = document.createElement('span'); if (cls) s.className = cls; s.textContent = txt; status.appendChild(s);
+    }
+    showList(r.warnings, 'warn');
+    const key = r.aspect + '|' + JSON.stringify(r.scenes) + '|' + JSON.stringify(r.inputs.map((i) => [i.name, i.kind, i.min, i.max]));
+    if (key !== shapeKey) { shapeKey = key; rulers(r.aspect); buildScenes(r.scenes, r.duration); buildInputs(r.inputs); }
+    $('scrub').max = String(r.duration);
+    $('pointerHint').hidden = !/\bm[xy]\b/.test(ed.value);
+    return r;
+  }
+  let timer = null;
+  ed.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { markChip(null); recompile(); }, 250); });
+  ed.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') { e.preventDefault(); const s = ed.selectionStart; ed.setRangeText('  ', s, ed.selectionEnd, 'end'); ed.dispatchEvent(new Event('input')); }
+  });
+
+  // ---------- inputs panel ----------
+  function buildInputs(list) {
+    const box = $('inputs'); box.innerHTML = ''; box.hidden = !list.length;
+    for (const inp of list) {
+      const row = document.createElement('label'); row.className = 'row';
+      const name = document.createElement('span'); name.className = 'name'; name.textContent = inp.name;
+      const val = document.createElement('span'); val.className = 'val';
+      let ctl;
+      if (inp.kind === 'col') {
+        ctl = document.createElement('input'); ctl.type = 'color';
+        const cur = player.get(inp.name) || inp.value;
+        ctl.value = '#' + cur.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+        val.textContent = ctl.value;
+        ctl.oninput = () => { player.set(inp.name, ctl.value); val.textContent = ctl.value; };
+      } else {
+        ctl = document.createElement('input'); ctl.type = 'range';
+        const lo = inp.min != null ? inp.min : Math.min(0, inp.value), hi = inp.max != null ? inp.max : Math.max(1, inp.value * 2);
+        ctl.min = lo; ctl.max = hi; ctl.step = (hi - lo) / 200; ctl.value = player.get(inp.name) ?? inp.value;
+        val.textContent = fmtNum(+ctl.value);
+        ctl.oninput = () => { player.set(inp.name, +ctl.value); val.textContent = fmtNum(+ctl.value); };
+      }
+      ctl.setAttribute('aria-label', 'Input ' + inp.name);
+      row.append(name, ctl, val); box.appendChild(row);
+    }
+  }
+
+  // ---------- examples ----------
+  const chips = $('chips');
+  function markChip(id) { for (const c of chips.children) c.setAttribute('aria-pressed', String(c.dataset.id === id)); }
+  function loadSource(src, id) { ed.value = src; markChip(id || null); clearProbe(); player.seek(0); const r = recompile(); if (!reduce) player.play(); return r; }
+  for (const ex of EXAMPLES) {
+    const b = document.createElement('button'); b.className = 'chip'; b.textContent = ex.title; b.dataset.id = ex.id;
+    b.onclick = () => loadSource(ex.src, ex.id);
+    chips.appendChild(b);
+  }
+
+  // ---------- transport, scenes, probe ----------
+  const playBtn = $('play'), scrub = $('scrub'), clock = $('clock');
+  const ICON_PAUSE = '<rect x="4" y="3" width="4" height="14" fill="currentColor"/><rect x="12" y="3" width="4" height="14" fill="currentColor"/>';
+  const ICON_PLAY = '<path d="M5 3 L17 10 L5 17 Z" fill="currentColor"/>';
+  function syncPlay() { const v = player.playing; $('playIcon').innerHTML = v ? ICON_PAUSE : ICON_PLAY; playBtn.setAttribute('aria-label', v ? 'Pause' : 'Play'); }
+  player.on('play', syncPlay); player.on('pause', syncPlay); syncPlay();
+  playBtn.onclick = () => (player.playing ? player.pause() : player.play());
+  scrub.addEventListener('input', () => { player.pause(); player.seek(+scrub.value); });
+
+  const scenesEl = $('scenes'); let sceneBtns = [], playhead = null;
+  function buildScenes(list, dur) {
+    scenesEl.innerHTML = ''; sceneBtns = [];
+    scenesEl.hidden = !list.length;
+    if (!list.length) return;
+    list.forEach((sc, i) => {
+      const b = document.createElement('button'); b.className = 'scene';
+      b.style.left = (sc.start / dur * 100) + '%';
+      b.style.width = 'calc(' + ((Math.min(sc.end, dur) - sc.start) / dur * 100) + '% - 3px)';
+      b.textContent = (sc.end - sc.start) / dur > 0.14 ? 'Scene ' + (i + 1) : String(i + 1);
+      b.setAttribute('aria-label', 'Jump to scene ' + (i + 1) + ', ' + sc.start + ' to ' + sc.end + ' seconds');
+      b.onclick = () => player.seek(sc.start + 0.001);
+      b._sc = sc; scenesEl.appendChild(b); sceneBtns.push(b);
+    });
+    playhead = document.createElement('div'); playhead.className = 'playhead'; scenesEl.appendChild(playhead);
+  }
+
+  let probe = null, lastTxt = '';
+  const hh = $('hh'), hv = $('hv'), px1 = new Uint8Array(4);
+  function setProbe(ev) {
+    const r = view.getBoundingClientRect();
+    const fx = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), fy = Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height));
+    probe = { fx, fy };
+    hh.style.top = (fy * 100) + '%'; hv.style.left = (fx * 100) + '%'; hh.style.display = hv.style.display = 'block';
+    if (!player.playing) player.seek(player.time);
+  }
+  view.addEventListener('pointerdown', (e) => { view.setPointerCapture(e.pointerId); setProbe(e); });
+  view.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) setProbe(e); });
+  const HINT = $('probeTxt').textContent;
+  function clearProbe() { probe = null; lastTxt = ''; hh.style.display = hv.style.display = 'none'; $('probeTxt').textContent = HINT; $('sw').hidden = true; }
+  view.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') clearProbe(); });
+  const hex2 = (v) => v.toString(16).padStart(2, '0');
+
+  player.on('frame', (t) => {
+    const d = player.duration;
+    if (!scrub.matches(':active')) scrub.value = String(t);
+    clock.textContent = t.toFixed(2) + ' / ' + fmtNum(d) + ' s' + (player.playing && player.fps ? '  ' + player.fps + ' fps' : '');
+    if (playhead) {
+      playhead.style.left = (t / d * 100) + '%';
+      for (const b of sceneBtns) { const on = t >= b._sc.start && t < b._sc.end; if ((b.getAttribute('aria-current') === 'true') !== on) b.setAttribute('aria-current', String(on)); }
+    }
+    if (probe) {
+      const gl = player.gl, w = cv.width, h = cv.height;
+      gl.readPixels(Math.min(w - 1, Math.floor(probe.fx * w)), Math.min(h - 1, Math.floor((1 - probe.fy) * h)), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px1);
+      const hex = '#' + hex2(px1[0]) + hex2(px1[1]) + hex2(px1[2]);
+      const aspect = player.result ? player.result.aspect : 1;
+      const txt = 'x ' + (probe.fx * aspect).toFixed(3) + '   y ' + probe.fy.toFixed(3) + '   t ' + t.toFixed(2) + ' s   →  ' + hex;
+      if (txt !== lastTxt) { $('probeTxt').textContent = txt; $('sw').hidden = false; $('sw').style.background = hex; lastTxt = txt; }
+    }
+  });
+
+  // ---------- measure ----------
+  function rleBytes(px, w, h, prev) {
+    let bytes = 0;
+    const same = (i, j, a, b) => a[i] === b[j] && a[i + 1] === b[j + 1] && a[i + 2] === b[j + 2];
+    for (let y = 0; y < h; y++) {
+      let x = 0; const row = y * w * 4;
+      while (x < w) {
+        const i = row + x * 4;
+        if (prev && same(i, i, px, prev)) {
+          let n = 1; while (x + n < w && same(i + n * 4, i + n * 4, px, prev)) n++;
+          bytes += 2 * Math.ceil(n / 255); x += n; continue;
+        }
+        let n = 1;
+        while (x + n < w) { const j = i + n * 4; if (!same(j, i, px, px)) break; if (prev && same(j, j, px, prev)) break; n++; }
+        bytes += 4 * Math.ceil(n / 255); x += n;
+      }
+    }
+    return bytes;
+  }
+  function bars(rows, floor) {
+    const max = Math.max(...rows.map((r) => r.v));
+    const lo = Math.log10(floor), hi = Math.log10(max);
+    const wrap = document.createElement('div'); wrap.className = 'bars';
+    for (const r of rows) {
+      const lab = document.createElement('div'); lab.className = 'lab'; lab.textContent = r.label;
+      const tr = document.createElement('div'); tr.className = 'track';
+      const f = document.createElement('div'); f.className = 'fill' + (r.me ? ' me' : '');
+      const pct = r.v > 0 ? Math.max(0.5, (Math.log10(r.v) - lo) / (hi - lo) * 72) : 0;
+      f.style.width = pct + '%';
+      const val = document.createElement('div'); val.className = 'val'; val.style.left = pct + '%'; val.textContent = r.v > 0 ? kb(r.v) : (r.note || 'n/a');
+      tr.append(f, val); wrap.append(lab, tr);
+    }
+    const sc = document.createElement('div'); sc.className = 'scale'; sc.textContent = 'Log scale: every 10 times more bytes adds the same bar length.';
+    const out = document.createElement('div'); out.append(wrap, sc);
+    return out;
+  }
+  let mPlayer = null;
+  function offscreenPlayer() {
+    if (!mPlayer) mPlayer = new XYT.Player(document.createElement('canvas'), { autoplay: false, adaptive: false, pauseWhenHidden: false, pointer: false, fitAspect: false, reducedMotion: 'play' });
+    return mPlayer;
+  }
+  $('measBtn').onclick = async () => {
+    const btn = $('measBtn'), out = $('measOut');
+    out.innerHTML = '';
+    const mp = offscreenPlayer(); const r = mp.load(ed.value);
+    if (!r.ok) { const p = document.createElement('p'); p.className = 'msg bad'; p.textContent = 'Fix the problems in the program first, then measure.'; out.appendChild(p); return; }
+    btn.disabled = true;
+    const H = 256, W = Math.round(H * r.aspect), F = 120;
+    mp.setSize(W, H);
+    let rle = 0, drle = 0, prev = null;
+    for (let f = 0; f < F; f++) {
+      const px = mp.renderAt(f / 30).readPixels();
+      rle += rleBytes(px, W, H, null); drle += rleBytes(px, W, H, prev); prev = px;
+      if (f % 8 === 0) { btn.textContent = 'Measuring ' + Math.round(f / F * 100) + '%'; await new Promise((ok) => setTimeout(ok, 0)); }
+    }
+    const raw = W * H * 3 * F, src = bytesOf(ed.value);
+    out.appendChild(bars([
+      { label: 'XYT text', v: src, me: true }, { label: 'RLE + skip unchanged', v: drle }, { label: 'RLE per row', v: rle }, { label: 'Raw pixels', v: raw },
+    ], 100));
+    const p = document.createElement('p'); p.className = 'msg';
+    p.textContent = 'The text is ' + Math.round(drle / src).toLocaleString() + ' times smaller than the best run-length version' + (rle > raw ? ', and run-length encoding made this one bigger than raw pixels.' : '.');
+    out.appendChild(p);
+    btn.disabled = false; btn.textContent = 'Measure';
+  };
+
+  const first = EXAMPLES[0];
+  if (first) loadSource(first.src, first.id);
+  return { player, ed, loadSource, recompile, markChip, offscreenPlayer, bars, kb, bytesOf, examples: EXAMPLES, reduce };
+})();
+/*HOOK:script*/
+</script>
+</body>
+</html>

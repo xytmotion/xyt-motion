@@ -1,0 +1,9 @@
+// Bouncing ball: A ball bouncing on a floor, squashing on impact, with a shadow
+duration 2
+fill mix(#dfe9f5, #a9c4e6, y)
+rect cx=0.5 cy=0.93 w=1 h=0.14 color=#5b6b7f
+let h = abs(sin(p * pi))              // 0 on the floor, 1 at the top
+let squash = 1 + 0.3 * smoothstep(0.12, 0, h)
+let ry = 0.08 / squash
+ellipse cx=0.5 cy=0.86 rx=0.11 * (1.15 - h * 0.6) ry=0.022 color=black alpha=0.3 * (1 - h * 0.7) blur=0.02
+ellipse cx=0.5 cy=0.86 - ry - 0.55 * h rx=0.08 * squash ry=ry color=mix(#ff7a45, #c2361b, y * 2 - 0.9 + h)

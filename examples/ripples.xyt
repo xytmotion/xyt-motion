@@ -1,0 +1,6 @@
+// Water ripples: Ripples spreading on water from the center
+duration 3
+let d = dist(x, y, 0.5, 0.5)
+let w = sin(d * 60 - t * 8) * exp(-d * 4)
+fill mix(#06304a, #3fb6d8, 0.45 + 0.35 * w)
+ring cx=0.5 cy=0.5 r=p * 0.7 width=0.008 color=white alpha=0.5 * (1 - p) blur=0.01

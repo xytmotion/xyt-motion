@@ -1,0 +1,6 @@
+// Progress bar: A rounded progress bar filling and emptying, with a gradient
+duration 2
+fill #f4f6fb
+let e = ease(pingpong(p))
+rect cx=0.5 cy=0.5 w=0.7 h=0.08 radius=0.04 color=#dde3ee
+rect cx=0.15 + 0.35 * e cy=0.5 w=0.7 * e h=0.08 radius=0.04 color=mix(#5b7cfa, #b05bfa, x)
