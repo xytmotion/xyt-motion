@@ -1,4 +1,4 @@
-/*! xyt-motion 0.2.0 | MIT */
+/*! xyt-motion 0.3.0 | MIT */
 
 // src/util.js
 var XytError = class extends Error {
@@ -59,7 +59,9 @@ var SHAPES = {
   tri: { x1: 0.5, y1: 0.2, x2: 0.8, y2: 0.8, x3: 0.2, y3: 0.8 },
   ring: { cx: 0.5, cy: 0.5, r: 0.2, width: 0.02 },
   arc: { cx: 0.5, cy: 0.5, r: 0.2, width: 0.02, start: 180, end: 360 },
-  star: { cx: 0.5, cy: 0.5, r: 0.1, inner: 0.45, points: 5, angle: 0 }
+  star: { cx: 0.5, cy: 0.5, r: 0.1, inner: 0.45, points: 5, angle: 0 },
+  // a quadratic Bezier curve from (x1, y1) to (x2, y2), pulled toward the control point (cx, cy)
+  curve: { x1: 0.2, y1: 0.6, cx: 0.5, cy: 0.3, x2: 0.8, y2: 0.6, width: 0.01 }
 };
 var COMMON = { color: null, alpha: 1, blur: 0, stroke: 0 };
 var ALIASES = {
@@ -71,7 +73,8 @@ var ALIASES = {
   line: { thickness: "width" },
   tri: {},
   arc: { radius: "r", x: "cx", y: "cy", thickness: "width", from: "start", to: "end" },
-  star: { radius: "r", x: "cx", y: "cy", rotation: "angle", rotate: "angle", n: "points" }
+  star: { radius: "r", x: "cx", y: "cy", rotation: "angle", rotate: "angle", n: "points" },
+  curve: { thickness: "width", qx: "cx", qy: "cy" }
 };
 var SHAPE_ALIASES = {
   rectangle: "rect",
@@ -80,7 +83,8 @@ var SHAPE_ALIASES = {
   triangle: "tri",
   oval: "ellipse",
   segment: "line",
-  circ: "circle"
+  circ: "circle",
+  bezier: "curve"
 };
 var NAMED_COLORS = {
   white: "#ffffff",
@@ -116,11 +120,14 @@ var BUILTINS = {
   pi: "3.14159265",
   tau: "6.28318531"
 };
-var SCENE_VALUES = ["st", "sp"];
-var COMMANDS = ["xyt", "canvas", "duration", "bpm", "input", "let", "fill", "repeat", "scene", "define", "end"];
-var LANGUAGE_VERSION = "0.2";
+var TRANSFORM = { cx: null, cy: 0.5, angle: 0, scale: 1, flip: 1, dx: 0, dy: 0 };
+var TRANSFORM_ALIASES = { x: "cx", y: "cy", rotation: "angle", rotate: "angle", zoom: "scale", mirror: "flip" };
+var CLIP_OPTIONS = { blur: 0, stroke: 0, invert: 0 };
+var SCENE_VALUES = ["st", "sp", "sb"];
+var COMMANDS = ["xyt", "use", "canvas", "duration", "bpm", "input", "let", "fill", "repeat", "scene", "define", "group", "camera", "clip", "end"];
+var LANGUAGE_VERSION = "0.3";
 var ASPECT_NAMES = { square: 1, wide: 16 / 9, landscape: 16 / 9, tall: 9 / 16, portrait: 9 / 16, cinema: 2.39 };
-var LIMITS = { repeat: 500, cost: 2e3, warnCost: 400, nameLength: 64 };
+var LIMITS = { repeat: 500, cost: 2e3, warnCost: 400, warnLine: 100, nameLength: 64 };
 var FUNCTION_COST = { noise: [2, 2, 4], fbm: [10, 10, 20] };
 
 // src/glsl.js
@@ -151,6 +158,11 @@ float e_bounce(float v){ v = clamp(v, 0.0, 1.0);
   if (v < 0.72727273) { v -= 0.54545455; return 7.5625*v*v + 0.75; }
   if (v < 0.90909091) { v -= 0.81818182; return 7.5625*v*v + 0.9375; }
   v -= 0.95454545; return 7.5625*v*v + 0.984375; }
+
+// a wobble that starts at t = 0: swings between -1 and 1 at f per second, dying out at rate d
+float spring(float t, float f, float d){ return t <= 0.0 ? 0.0 : exp(-d*t) * sin(6.28318531*f*t); }
+// 1 at the moment of a hit, fading quickly (hits() takes the largest over its times)
+float hit(float t){ return t < 0.0 ? 0.0 : exp(-t*8.0); }
 
 // sin-free hashes (stable across GPUs), value noise and fractal noise
 float h11(float p){ p = fract(p*0.1031 + 0.3183); p *= p + 33.33; p *= p + p; return fract(p); }
@@ -195,6 +207,21 @@ float sdArc(vec2 p, float r, float w, float a0, float a1){ float sw = clamp(a1 -
   if (rel <= sw) return abs(length(p) - r) - w*0.5;
   vec2 e0 = r*vec2(cos(radians(a0)), sin(radians(a0))); vec2 e1 = r*vec2(cos(radians(a0 + sw)), sin(radians(a0 + sw)));
   return min(length(p - e0), length(p - e1)) - w*0.5; }
+// quadratic Bezier curve from A to C pulled toward B, exact distance (after Inigo Quilez, MIT).
+// Nearly straight curves use a segment: the cubic solution loses precision there.
+float sdBez(vec2 pos, vec2 A, vec2 B, vec2 C){
+  vec2 a = B - A; vec2 b = A - 2.0*B + C; vec2 c = a*2.0; vec2 d = A - pos; vec2 ac = C - A;
+  float bb = dot(b, b);
+  if (bb < 1e-5*dot(ac, ac) + 1e-12) return sdSeg(pos, A, C);
+  float kk = 1.0/bb; float kx = kk*dot(a, b); float ky = kk*(2.0*dot(a, a) + dot(d, b))/3.0; float kz = kk*dot(d, a);
+  float p = ky - kx*kx; float q = kx*(2.0*kx*kx - 3.0*ky) + kz; float h = q*q + 4.0*p*p*p;
+  float res;
+  if (h >= 0.0) { h = sqrt(h); vec2 x = (vec2(h, -h) - q)*0.5; vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+    float t = clamp(uv.x + uv.y - kx, 0.0, 1.0); vec2 e = d + (c + b*t)*t; res = dot(e, e); }
+  else { float z = sqrt(-p); float v = acos(clamp(q/(p*z*2.0), -1.0, 1.0))/3.0; float m = cos(v); float n = sin(v)*1.732050808;
+    vec3 t = clamp(vec3(m + m, -n - m, n - m)*z - kx, 0.0, 1.0);
+    vec2 e1 = d + (c + b*t.x)*t.x; vec2 e2 = d + (c + b*t.y)*t.y; res = min(dot(e1, e1), dot(e2, e2)); }
+  return sqrt(res); }
 // n-pointed star, one point straight up at angle 0; k = inner radius / outer radius
 float sdStar(vec2 p, float r, float k, float n, float deg){ p = rot(p, deg);
   n = max(floor(n + 0.5), 2.0); k = clamp(k, 0.05, 1.0);
@@ -207,7 +234,27 @@ float sdStar(vec2 p, float r, float k, float n, float deg){ p = rot(p, deg);
   return (ba.x*pa.y - ba.y*pa.x) < 0.0 ? -d : d; }
 `;
 
+// src/registry.js
+var loaded = /* @__PURE__ */ new Map();
+function use(plugin) {
+  if (!plugin || typeof plugin.name !== "string" || !/^[a-z][a-z0-9]*$/.test(plugin.name)) {
+    throw new TypeError("use() needs an XYT plugin, like the default export of xyt-motion/text");
+  }
+  for (const name of Object.keys(plugin.shapes || {})) {
+    if (COMMANDS.includes(name) || SHAPES[name] || SHAPE_ALIASES[name] || BUILTINS[name] || NAMED_COLORS[name]) {
+      throw new Error(`the ${plugin.name} plugin's '${name}' is already part of the language`);
+    }
+  }
+  loaded.set(plugin.name, plugin);
+}
+var pluginNamed = (name) => loaded.get(name);
+var loadedPlugins = () => [...loaded.values()];
+var KNOWN_PLUGINS = {
+  text: { commands: ["text"], load: "import text from 'xyt-motion/text' and call use(text), or load dist/xyt-text.min.js after the library" }
+};
+
 // src/parser.js
+var own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 function lexLine(src, line) {
   const toks = [];
   let i = 0;
@@ -218,6 +265,14 @@ function lexLine(src, line) {
       continue;
     }
     if (c === "/" && src[i + 1] === "/") break;
+    if (c === '"' || c === "'") {
+      let v = "", j = i + 1;
+      for (; j < src.length && src[j] !== c; j++) v += src[j] === "\\" && j + 1 < src.length ? src[++j] : src[j];
+      if (j >= src.length) throw new XytError(line, `these words have no closing ${c}`);
+      toks.push({ k: "str", v });
+      i = j + 1;
+      continue;
+    }
     if (c === "#") {
       const m = /^#([0-9a-fA-F]+)(?![0-9a-zA-Z_])/.exec(src.slice(i));
       if (m && toks.length > 0) {
@@ -263,7 +318,7 @@ function lexLine(src, line) {
   }
   return toks;
 }
-var tokStr = (k) => k.k === "col" ? "#" + k.v : String(k.v);
+var tokStr = (k) => k.k === "col" ? "#" + k.v : k.k === "str" ? `"${k.v}"` : String(k.v);
 var BINARY = { "||": 1, "&&": 2, "<": 3, ">": 3, "<=": 3, ">=": 3, "==": 3, "!=": 3, "+": 4, "-": 4, "*": 5, "/": 5, "%": 5, "^": 7 };
 var UNARY_PREC = 6;
 var Cursor = class {
@@ -350,13 +405,15 @@ function parsePrimary(c) {
     c.expect(")");
     return e;
   }
+  if (k.k === "str") throw new XytError(c.line, `words in quotes only go right after a command that writes them, like: text "Hello" x=0.5`);
   throw new XytError(c.line, `expected a value but found '${tokStr(k)}'`);
 }
 function parseNamed(c, what) {
   const attrs = {};
   while (!c.atEnd()) {
     if (!c.isNamedValue()) {
-      throw new XytError(c.line, `${what} takes named values like ${what === "fill" ? "alpha=0.5" : "color=red"}; found '${tokStr(c.peek())}'`);
+      const example = { fill: "alpha=0.5", group: "angle=30", camera: "zoom=2" }[what] || (what.startsWith("clip") ? "r=0.3" : "color=red");
+      throw new XytError(c.line, `${what} takes named values like ${example}; found '${tokStr(c.peek())}'`);
     }
     const name = c.next().v;
     c.next();
@@ -399,10 +456,39 @@ function parse(src) {
     duration: null,
     bpm: 120,
     offset: 0,
+    bar: 4,
     inputs: [],
     body: root.body,
     errors: [],
-    defines: /* @__PURE__ */ new Set()
+    defines: /* @__PURE__ */ new Set(),
+    uses: []
+  };
+  const pluginShape = (name) => {
+    for (const p of program.uses) if (p.shapes && own(p.shapes, name)) return { plugin: p, def: p.shapes[name] };
+    return null;
+  };
+  const pluginShapeLine = (c, name, line, what) => {
+    const { plugin, def } = pluginShape(name);
+    let str = null;
+    if (def.string) {
+      const k = c.peek();
+      if (!k || k.k !== "str") throw new XytError(line, `${name} needs its words in quotes first, like: ${name} "Hello" x=0.5`);
+      c.next();
+      str = k.v;
+      const problem = def.check && def.check(str);
+      if (problem) throw new XytError(line, problem);
+    }
+    return { plugin, def, str, attrs: parseNamed(c, what) };
+  };
+  let durationBars = null;
+  const barScenes = [];
+  const inBars = (c) => {
+    const k = c.peek();
+    if (k && k.k === "id" && (k.v === "bars" || k.v === "bar")) {
+      c.next();
+      return true;
+    }
+    return false;
   };
   const topLevelOnly = (cmd, line) => {
     if (stack.length > 1) throw new XytError(line, `${cmd} must be at the top level, not inside a ${stack[stack.length - 1].k}`);
@@ -431,6 +517,19 @@ function parse(src) {
             throw new XytError(line, `this program is written for XYT ${m[1]}.${m[2]}, newer than this library (XYT ${LANGUAGE_VERSION}); update xyt-motion`);
           }
           program.version = `${m[1]}.${m[2]}`;
+          break;
+        }
+        case "use": {
+          topLevelOnly(cmd, line);
+          const n = c.next();
+          if (!n || n.k !== "id") throw new XytError(line, "use needs the name of a plugin, like: use text");
+          done("the plugin name");
+          const p = pluginNamed(n.v);
+          if (!p) {
+            const names = [...new Set(Object.keys(KNOWN_PLUGINS).concat(loadedPlugins().map((q) => q.name)))];
+            throw new XytError(line, KNOWN_PLUGINS[n.v] ? `this program uses the '${n.v}' plugin, which isn't loaded here: ${KNOWN_PLUGINS[n.v].load}` : `there is no '${n.v}' plugin.` + suggest(n.v, names) + ` Plugins: ${names.join(", ")}`);
+          }
+          if (!program.uses.includes(p)) program.uses.push(p);
           break;
         }
         case "canvas": {
@@ -465,10 +564,12 @@ function parse(src) {
         }
         case "duration": {
           topLevelOnly(cmd, line);
+          const bars = inBars(c);
           const v = constNumber(c, "duration");
-          if (v <= 0) throw new XytError(line, "duration needs a positive number of seconds, like: duration 4");
+          if (v <= 0) throw new XytError(line, bars ? "duration bars needs a positive number of bars, like: duration bars 16" : "duration needs a positive number of seconds, like: duration 4");
           done("the duration");
-          program.duration = Math.min(v, 3600);
+          if (bars) durationBars = v;
+          else program.duration = Math.min(v, 3600);
           break;
         }
         case "bpm": {
@@ -478,10 +579,17 @@ function parse(src) {
           program.bpm = v;
           const opts = parseNamed(c, "bpm");
           for (const n of Object.keys(opts)) {
-            if (n !== "offset") throw new XytError(line, `bpm has no '${n}'. It takes: offset (seconds before the first beat)`);
-            if (opts.offset.t !== "num" && !(opts.offset.t === "neg" && opts.offset.a.t === "num"))
-              throw new XytError(line, "bpm offset needs a plain number of seconds");
-            program.offset = opts.offset.t === "num" ? opts.offset.v : -opts.offset.a.v;
+            if (n !== "offset" && n !== "bar") {
+              throw new XytError(line, `bpm has no '${n}'.` + suggest(n, ["offset", "bar"]) + " It takes: offset (seconds before the first beat), bar (beats per bar)");
+            }
+            const e = opts[n], val = e.t === "num" ? e.v : e.t === "neg" && e.a.t === "num" ? -e.a.v : null;
+            if (n === "offset") {
+              if (val === null) throw new XytError(line, "bpm offset needs a plain number of seconds");
+              program.offset = val;
+            } else {
+              if (!(val >= 1 && val <= 32 && val === Math.floor(val))) throw new XytError(line, "bpm bar needs a whole number of beats per bar, like: bpm 120 bar=3");
+              program.bar = val;
+            }
           }
           break;
         }
@@ -525,10 +633,13 @@ function parse(src) {
         }
         case "scene": {
           if (stack.length > 1) throw new XytError(line, `a scene can't go inside a ${stack[stack.length - 1].k}; close it with 'end' first`);
+          const bars = inBars(c);
           const a = constNumber(c, "scene"), b = constNumber(c, "scene");
-          if (!(b > a)) throw new XytError(line, "scene needs a start and an end time in seconds, end after start: scene 6 12");
+          if (bars && !(a >= 1 && b >= a)) throw new XytError(line, "scene bars needs its first and last bar, counting from 1, both included: scene bars 9 16");
+          if (!bars && !(b > a)) throw new XytError(line, "scene needs a start and an end time in seconds, end after start: scene 6 12");
           const opts = parseNamed(c, "scene");
           const blk = { k: "scene", start: a, end: b, fadein: 0, fadeout: 0, body: [], line };
+          if (bars) barScenes.push(blk);
           for (const o of Object.keys(opts)) {
             if (!["fade", "fadein", "fadeout"].includes(o)) throw new XytError(line, `scene has no '${o}'.` + suggest(o, ["fade", "fadein", "fadeout"]) + " It takes: fade, fadein, fadeout");
             if (opts[o].t !== "num") throw new XytError(line, `scene ${o} needs a plain number of seconds`);
@@ -544,7 +655,7 @@ function parse(src) {
           topLevelOnly(cmd, line);
           const n = c.next();
           if (!n || n.k !== "id") throw new XytError(line, "define needs a name and its values: define bird cx=0.5 cy=0.5 s=1");
-          if (COMMANDS.includes(n.v) || SHAPES[n.v] || SHAPE_ALIASES[n.v] || BUILTINS[n.v] || NAMED_COLORS[n.v] || n.v === "background" || n.v === "bg")
+          if (COMMANDS.includes(n.v) || SHAPES[n.v] || SHAPE_ALIASES[n.v] || BUILTINS[n.v] || NAMED_COLORS[n.v] || pluginShape(n.v) || n.v === "background" || n.v === "bg")
             throw new XytError(line, `'${n.v}' is a built-in name; pick another name`);
           if (program.defines.has(n.v)) throw new XytError(line, `'${n.v}' is defined twice`);
           const params = parseNamed(c, "define");
@@ -554,8 +665,34 @@ function parse(src) {
           stack.push(blk);
           break;
         }
+        case "group": {
+          const blk = { k: "group", attrs: parseNamed(c, "group"), body: [], line };
+          body.push(blk);
+          stack.push(blk);
+          break;
+        }
+        case "camera": {
+          body.push({ k: "camera", attrs: parseNamed(c, "camera"), line });
+          break;
+        }
+        case "clip": {
+          const k = c.next();
+          let blk;
+          if (k && k.k === "id" && pluginShape(k.v)) {
+            blk = { k: "clip", type: k.v, ...pluginShapeLine(c, k.v, line, `clip ${k.v}`), body: [], line };
+          } else {
+            const type = k && k.k === "id" && (SHAPES[k.v] ? k.v : SHAPE_ALIASES[k.v]);
+            if (!type) {
+              throw new XytError(line, `clip needs a shape to draw inside, like: clip circle cx=0.5 cy=0.5 r=0.3. Shapes: ${Object.keys(SHAPES).join(", ")}`);
+            }
+            blk = { k: "clip", type, attrs: parseNamed(c, `clip ${type}`), body: [], line };
+          }
+          body.push(blk);
+          stack.push(blk);
+          break;
+        }
         case "end": {
-          if (stack.length === 1) throw new XytError(line, "'end' without a matching repeat, scene or define");
+          if (stack.length === 1) throw new XytError(line, "'end' without a matching repeat, scene, define, group or clip");
           done("'end'");
           stack.pop();
           break;
@@ -576,7 +713,13 @@ function parse(src) {
             body.push({ k: "shape", type, attrs: parseNamed(c, type), line });
           } else if (program.defines.has(cmd)) {
             body.push({ k: "call", name: cmd, attrs: parseNamed(c, cmd), line });
+          } else if (pluginShape(cmd)) {
+            body.push({ k: "shape", type: cmd, ...pluginShapeLine(c, cmd, line, cmd), line });
           } else {
+            const owner = loadedPlugins().find((p) => p.shapes && own(p.shapes, cmd));
+            if (owner) throw new XytError(line, `${cmd} comes from the '${owner.name}' plugin: add 'use ${owner.name}' at the top of the program`);
+            const official = Object.keys(KNOWN_PLUGINS).find((n) => KNOWN_PLUGINS[n].commands.includes(cmd));
+            if (official) throw new XytError(line, `${cmd} comes from the '${official}' plugin: add 'use ${official}' at the top of the program, and load the plugin: ${KNOWN_PLUGINS[official].load}`);
             const definedLater = lines.slice(li + 1).some((l) => new RegExp(`^\\s*define\\s+${cmd}\\b`).test(l));
             if (definedLater) throw new XytError(line, `'${cmd}' is defined further down; move its define block above this line`);
             const known = COMMANDS.concat(Object.keys(SHAPES), [...program.defines]);
@@ -593,6 +736,12 @@ function parse(src) {
     const b = stack[stack.length - 1];
     program.errors.push(new XytError(b.line, `this ${b.k} has no matching 'end'`));
   }
+  const barLength = 60 / program.bpm * program.bar;
+  for (const s of barScenes) {
+    s.start = program.offset + (s.start - 1) * barLength;
+    s.end = program.offset + s.end * barLength;
+  }
+  if (durationBars !== null && program.duration === null) program.duration = Math.min(program.offset + durationBars * barLength, 3600);
   if (program.duration === null) {
     const ends = root.body.filter((b) => b.k === "scene").map((b) => b.end);
     program.duration = ends.length ? Math.max(...ends) : 4;
@@ -631,9 +780,14 @@ var FUNCTIONS = UNARY.concat([
   "backout",
   "bounce",
   "pingpong",
-  "keys"
+  "keys",
+  "spring",
+  "hits"
 ]);
 var asCol = (r) => r.t === "col" ? r.c : `vec3(${r.c})`;
+var own2 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+var BLOCKS = ["repeat", "scene", "define", "group", "clip"];
+var CALL_TRANSFORM = ["angle", "scale", "flip", "dx", "dy"];
 var Scope = class {
   constructor(parent = null, context = null) {
     this.vars = /* @__PURE__ */ new Map();
@@ -647,9 +801,9 @@ var Scope = class {
     return [...this.vars.keys()].concat(this.parent ? this.parent.names() : []);
   }
 };
-function reservedReason(name, defines) {
+function reservedReason(name, defines, uses = []) {
   if (BUILTINS[name]) return "a built-in value";
-  if (COMMANDS.includes(name) || SHAPES[name]) return "a command";
+  if (COMMANDS.includes(name) || SHAPES[name] || uses.some((p) => p.shapes && own2(p.shapes, name))) return "a command";
   if (SCENE_VALUES.includes(name)) return "a scene value";
   if (defines && defines.has(name)) return "a define";
   return null;
@@ -660,17 +814,24 @@ var Compiler = class {
     this.uid = 0;
     this.out = [];
     this.funcs = [];
+    this.helpers = /* @__PURE__ */ new Map();
     this.defs = /* @__PURE__ */ new Map();
     this.errors = [];
     this.inDefine = null;
     this.draws = 0;
     this.work = 0;
+    this.mult = 1;
+    this.lineCost = /* @__PURE__ */ new Map();
+    this.warnings = [];
+  }
+  record(line, k) {
+    if (!this.inDefine && k > 0) this.lineCost.set(line, (this.lineCost.get(line) || 0) + k * this.mult);
   }
   error(line, msg) {
     return new XytError(line, msg);
   }
   checkName(name, line, what) {
-    const why = reservedReason(name, this.program.defines);
+    const why = reservedReason(name, this.program.defines, this.program.uses);
     if (why) throw this.error(line, `'${name}' is ${why}; pick another name for this ${what}`);
   }
   // ---------- expressions ----------
@@ -854,6 +1015,14 @@ var Compiler = class {
         count(1);
         nums();
         return { c: `(1.0-abs(fract(${c(0)})*2.0-1.0))`, t: "num" };
+      case "spring":
+        count(1, 3);
+        nums();
+        return { c: `spring(${c(0)},${args.length > 1 ? c(1) : "2.0"},${args.length > 2 ? c(2) : "4.0"})`, t: "num" };
+      case "hits":
+        if (args.length < 2) throw E("hits() takes a time, then the times of the hits: hits(t, 1, 2.5, 4)");
+        nums();
+        return { c: args.slice(1).map((a) => `hit(${c(0)} - ${a.c})`).reduce((x, y) => `max(${x},${y})`), t: "num" };
       case "keys": {
         if (args.length < 5 || (args.length - 1) % 2 !== 0) {
           throw E("keys() takes a time, then pairs of key time and value: keys(t, 0, 0.2, 1.5, 0.8, 3, 0.2)");
@@ -878,11 +1047,15 @@ var Compiler = class {
   // ---------- statements; each returns its cost (shape evaluations per pixel) ----------
   stmts(list, sc, ind) {
     let cost = 0, sceneMax = 0;
+    const block = { camera: 0 };
     for (const s of list) {
       try {
         const work = this.work;
-        let k = this.stmt(s, sc, ind);
-        if (s.k !== "repeat" && s.k !== "scene" && s.k !== "define") k += this.work - work;
+        let k = this.stmt(s, sc, ind, block);
+        if (!BLOCKS.includes(s.k)) {
+          k += this.work - work;
+          this.record(s.line, k);
+        }
         if (s.k === "scene") sceneMax = Math.max(sceneMax, k);
         else cost += k;
       } catch (e) {
@@ -892,9 +1065,10 @@ var Compiler = class {
       }
       if (this.errors.length > 20) break;
     }
+    if (block.camera) this.out.push(`${ind}${this.restore(block.camera)}`);
     return cost + sceneMax;
   }
-  stmt(s, sc, ind) {
+  stmt(s, sc, ind, block) {
     const E = (m) => this.error(s.line, m);
     const o = this.out;
     switch (s.k) {
@@ -913,17 +1087,25 @@ var Compiler = class {
         o.push(`${ind}for (int k_${id} = 0; k_${id} < ${s.count}; k_${id}++) { float ${g} = float(k_${id});`);
         const inner = new Scope(sc);
         inner.vars.set(s.name, { c: g, t: "num" });
-        const cost = this.stmts(s.body, inner, ind + "  ");
+        const mult = this.mult;
+        this.mult *= s.count;
+        let cost;
+        try {
+          cost = this.stmts(s.body, inner, ind + "  ");
+        } finally {
+          this.mult = mult;
+        }
         o.push(`${ind}}`);
         return cost * s.count;
       }
       case "scene": {
         const id = ++this.uid, a = fmt(s.start), b = fmt(s.end);
         o.push(`${ind}if (T >= ${a} && T < ${b}) { vec3 sv_${id} = col;`);
-        o.push(`${ind}  float v_st_${id} = T - ${a}; float v_sp_${id} = v_st_${id} / ${fmt(s.end - s.start)};`);
+        o.push(`${ind}  float v_st_${id} = T - ${a}; float v_sp_${id} = v_st_${id} / ${fmt(s.end - s.start)}; float v_sb_${id} = v_st_${id} * ${fmt(this.program.bpm / 60)};`);
         const inner = new Scope(sc);
         inner.vars.set("st", { c: `v_st_${id}`, t: "num" });
         inner.vars.set("sp", { c: `v_sp_${id}`, t: "num" });
+        inner.vars.set("sb", { c: `v_sb_${id}`, t: "num" });
         const cost = this.stmts(s.body, inner, ind + "  ");
         let fade = "";
         if (s.fadein > 0) fade += ` * clamp(v_st_${id} / ${fmt(s.fadein)}, 0.0, 1.0)`;
@@ -934,13 +1116,55 @@ var Compiler = class {
       }
       case "define":
         return this.define(s, sc);
+      case "group": {
+        const work = this.work;
+        const t = this.transformValues(s.attrs, sc, s.line, "group");
+        const own3 = this.work - work;
+        this.record(s.line, own3);
+        if (!s.body.length) throw E("this group is empty; put shapes between it and 'end'");
+        const id = ++this.uid;
+        o.push(`${ind}{ ${this.save(id)}`, ...this.applyTransform(t, ind + "  "));
+        const cost = this.stmts(s.body, new Scope(sc), ind + "  ");
+        o.push(`${ind}  ${this.restore(id)} }`);
+        return own3 + cost;
+      }
+      case "camera": {
+        const t = this.transformValues(s.attrs, sc, s.line, "camera");
+        if (block.camera) o.push(`${ind}${this.restore(block.camera)}`);
+        else {
+          block.camera = ++this.uid;
+          o.push(`${ind}${this.save(block.camera)}`);
+        }
+        o.push(...this.applyTransform(t, ind));
+        return 0;
+      }
+      case "clip": {
+        const work = this.work;
+        const { v, num } = this.shapeValues(s, sc, CLIP_OPTIONS, `clip ${s.type}`);
+        const own3 = (s.def && s.def.cost ? s.def.cost(s.str) : 1) + this.work - work;
+        this.record(s.line, own3);
+        if (!s.body.length) throw E(`this clip ${s.type} is empty; put shapes between it and 'end'`);
+        const id = ++this.uid;
+        o.push(`${ind}{ vec3 cs_${id} = col; float cc_${id};`, ...this.coverage(s, v, num, ind + "  "));
+        o.push(`${ind}    cc_${id} = ${v.invert ? `mix(cv, 1.0 - cv, clamp(${num("invert")}, 0.0, 1.0))` : "cv"}; }`);
+        o.push(`${ind}  if (cc_${id} > 0.0) {`);
+        const cost = this.stmts(s.body, new Scope(sc), ind + "    ");
+        o.push(`${ind}    col = mix(cs_${id}, col, cc_${id});`, `${ind}  } }`);
+        return own3 + cost;
+      }
       case "call": {
         if (s.name === this.inDefine) throw E(`'${s.name}' can't be used inside its own define`);
         const d = this.defs.get(s.name);
         if (!d) throw E(`'${s.name}' can't be drawn because its define has a problem`);
         const names = d.params.map((q) => q.name);
+        const moves = {};
         for (const a of Object.keys(s.attrs)) {
-          if (!names.includes(a)) throw E(`${s.name} has no '${a}'.` + suggest(a, names) + ` It takes: ${names.join(", ")}`);
+          if (names.includes(a)) continue;
+          if (CALL_TRANSFORM.includes(a)) {
+            moves[a] = s.attrs[a];
+            continue;
+          }
+          throw E(`${s.name} has no '${a}'.` + suggest(a, names.concat(CALL_TRANSFORM)) + ` It takes: ${names.join(", ")}, and ${CALL_TRANSFORM.join(", ")} to turn, scale, mirror or move it`);
         }
         const args = d.params.map((q) => {
           if (!s.attrs[q.name]) return q.def;
@@ -948,8 +1172,20 @@ var Compiler = class {
           if (q.t === "num" && r.t === "col") throw E(`'${q.name}' must be a number, not a color`);
           return q.t === "col" ? asCol(r) : r.c;
         });
-        o.push(`${ind}col = ${d.fname}(col${args.map((a) => ", " + a).join("")});`);
+        const call = `col = ${d.fname}(col${args.map((a) => ", " + a).join("")});`;
+        if (Object.keys(moves).length) {
+          const at = (n) => {
+            const i = names.indexOf(n);
+            return i >= 0 && d.params[i].t === "num" ? `(${args[i]})` : null;
+          };
+          const t = this.transformValues(moves, sc, s.line, s.name, { cx: at("cx"), cy: at("cy") });
+          const id = ++this.uid;
+          o.push(`${ind}{ ${this.save(id)}`, ...this.applyTransform(t, ind + "  "), `${ind}  ${call}`, `${ind}  ${this.restore(id)} }`);
+        } else o.push(`${ind}${call}`);
         this.draws++;
+        if (!this.inDefine && this.mult > 1 && d.cost * this.mult >= LIMITS.warnLine) {
+          this.warnings.push({ line: s.line, message: `${s.name} costs about ${d.cost} shapes and repeat draws it ${this.mult} times, so this line alone costs about ${d.cost * this.mult} per pixel` });
+        }
         return d.cost;
       }
       case "fill":
@@ -958,6 +1194,41 @@ var Compiler = class {
         return this.shape(s, sc, ind);
     }
     throw E("this line could not be understood");
+  }
+  // The values of a group, camera or define call transform as GLSL, with defaults filled in.
+  transformValues(attrs, sc, line, what, pivot = {}) {
+    const E = (m) => this.error(line, m);
+    const t = {};
+    for (const raw of Object.keys(attrs)) {
+      const name = own2(TRANSFORM, raw) ? raw : own2(TRANSFORM_ALIASES, raw) ? TRANSFORM_ALIASES[raw] : null;
+      if (!name) {
+        const names = Object.keys(TRANSFORM).map((k) => k === "scale" && what === "camera" ? "zoom" : k);
+        throw E(`${what} has no '${raw}'.` + suggest(raw, names) + ` It takes: ${names.join(", ")}`);
+      }
+      if (t[name]) throw E(`'${name}' is given twice`);
+      const r = this.ex(attrs[raw], sc, line);
+      if (r.t === "col") throw E(`'${raw}' must be a number, not a color`);
+      t[name] = `(${r.c})`;
+    }
+    const value = (k) => t[k] || pivot[k] || (k === "cx" ? "(ASPECT*0.5)" : fmt(TRANSFORM[k]));
+    return Object.fromEntries(Object.keys(TRANSFORM).map((k) => [k, value(k)]));
+  }
+  // Moves the sampling point so that whatever is drawn next appears turned by angle (clockwise),
+  // scaled and mirrored around (cx, cy), then moved by (dx, dy). PX scales too, so edges stay
+  // one pixel wide at any zoom.
+  applyTransform(t, ind) {
+    return [
+      `${ind}{ vec2 c = vec2(${t.cx}, ${t.cy}); float s = ${t.scale}; float f = ${t.flip};`,
+      `${ind}  s = abs(s) < 1e-6 ? 1e-6 : s; f = abs(f) < 1e-4 ? 1e-4 : f;`,
+      `${ind}  PP = rot(PP - c - vec2(${t.dx}, ${t.dy}), ${t.angle}) / s; PP.x /= f; PP += c;`,
+      `${ind}  PX /= abs(s); X = PP.x; Y = PP.y; }`
+    ];
+  }
+  save(id) {
+    return `vec2 sp_${id} = PP; float spx_${id} = PX;`;
+  }
+  restore(id) {
+    return `PP = sp_${id}; PX = spx_${id}; X = PP.x; Y = PP.y;`;
   }
   define(s, sc) {
     const E = (m) => this.error(s.line, m);
@@ -1007,26 +1278,45 @@ ${code.join("\n")}
     }
     return 1;
   }
-  shape(s, sc, ind) {
+  // A shape line's values after aliases, checked for names, repeats and types.
+  shapeValues(s, sc, options, what) {
     const E = (m) => this.error(s.line, m);
-    const allowed = Object.assign({}, SHAPES[s.type], COMMON);
-    const aliases = Object.assign({}, ALIASES._all, ALIASES[s.type]);
+    const allowed = Object.assign({}, s.def ? s.def.values : SHAPES[s.type], options);
+    const aliases = Object.assign({}, ALIASES._all, s.def ? s.def.aliases : ALIASES[s.type]);
+    const named = s.def && s.def.names || {};
     const v = {};
     for (const raw of Object.keys(s.attrs)) {
-      const name = Object.prototype.hasOwnProperty.call(allowed, raw) ? raw : aliases[raw];
-      if (!name || !Object.prototype.hasOwnProperty.call(allowed, name)) {
-        throw E(`${s.type} has no '${raw}'.` + suggest(raw, Object.keys(allowed)) + ` It takes: ${Object.keys(allowed).join(", ")}`);
+      const name = own2(allowed, raw) ? raw : aliases[raw];
+      if (!name || !own2(allowed, name)) {
+        const meant = typeof name === "string" ? name : raw;
+        const hint = options === CLIP_OPTIONS && (meant === "color" || meant === "alpha") ? " A clip shape is not drawn, so it takes no color or alpha." : "";
+        throw E(`${what} has no '${raw}'.` + suggest(raw, Object.keys(allowed)) + hint + ` It takes: ${Object.keys(allowed).join(", ")}`);
       }
       if (v[name]) throw E(`'${name}' is given twice`);
-      v[name] = this.ex(s.attrs[raw], sc, s.line);
+      let node = s.attrs[raw];
+      if (own2(named, name) && node.t === "var" && !sc.get(node.name)) {
+        if (!own2(named[name], node.name)) {
+          const words = Object.keys(named[name]);
+          throw E(`'${raw}' takes a number or one of: ${words.join(", ")}.` + suggest(node.name, words));
+        }
+        node = { t: "num", v: named[name][node.name] };
+      }
+      v[name] = this.ex(node, sc, s.line);
       if (name !== "color" && v[name].t === "col") throw E(`'${raw}' must be a number, not a color`);
     }
-    if (!this.inDefine) this.draws++;
     const num = (k) => v[k] ? `(${v[k].c})` : fmt(allowed[k]);
-    const color = v.color ? asCol(v.color) : "vec3(1.0)";
+    return { v, num };
+  }
+  // GLSL that opens a block and sets cv to how much of this pixel the shape covers, 0 to 1.
+  // The caller uses cv and closes the block.
+  coverage(s, v, num, ind) {
+    const type = s.type;
     const at = (cx, cy) => `PP - vec2(${num(cx)},${num(cy)})`;
     let d;
-    switch (s.type) {
+    if (s.def) d = s.def.distance(s.str, num, (name, code) => {
+      if (!this.helpers.has(name)) this.helpers.set(name, code);
+    });
+    switch (type) {
       case "circle":
         d = `length(${at("cx", "cy")}) - ${num("r")}`;
         break;
@@ -1051,8 +1341,11 @@ ${code.join("\n")}
       case "star":
         d = `sdStar(${at("cx", "cy")}, ${num("r")}, ${num("inner")}, ${num("points")}, ${num("angle")})`;
         break;
+      case "curve":
+        d = `sdBez(PP, vec2(${num("x1")},${num("y1")}), vec2(${num("cx")},${num("cy")}), vec2(${num("x2")},${num("y2")})) - ${num("width")}*0.5`;
+        break;
     }
-    const thickness = v.stroke ? `abs(${num("stroke")})` : {
+    const thickness = v.stroke ? `abs(${num("stroke")})` : s.def ? s.def.thickness ? s.def.thickness(s.str, num) : null : {
       circle: `2.0*abs(${num("r")})`,
       ellipse: `2.0*min(abs(${num("rx")}),abs(${num("ry")}))`,
       rect: `min(abs(${num("w")}),abs(${num("h")}))`,
@@ -1060,15 +1353,21 @@ ${code.join("\n")}
       ring: `abs(${num("width")})`,
       arc: `abs(${num("width")})`,
       star: `2.0*abs(${num("r")})*clamp(${num("inner")},0.05,1.0)`,
-      tri: null
-    }[s.type];
-    const o = this.out;
-    o.push(`${ind}{ float d = ${d};`);
-    if (v.stroke) o.push(`${ind}  d = abs(d) - ${num("stroke")}*0.5;`);
-    o.push(`${ind}  float w = max(${num("blur")}, PX);`);
-    o.push(`${ind}  float cv = (1.0 - ssf(-w*0.5, w*0.5, d))${thickness ? ` * clamp(${thickness}/PX, 0.0, 1.0)` : ""}${v.alpha ? ` * clamp(${v.alpha.c},0.0,1.0)` : ""};`);
-    o.push(`${ind}  if (cv > 0.0) col = mix(col, ${color}, cv); }`);
-    return 1;
+      tri: null,
+      curve: `abs(${num("width")})`
+    }[type];
+    const lines = [`${ind}{ float d = ${d};`];
+    if (v.stroke) lines.push(`${ind}  d = abs(d) - ${num("stroke")}*0.5;`);
+    lines.push(`${ind}  float w = max(${num("blur")}, PX);`);
+    lines.push(`${ind}  float cv = (1.0 - ssf(-w*0.5, w*0.5, d))${thickness ? ` * clamp(${thickness}/PX, 0.0, 1.0)` : ""}${v.alpha ? ` * clamp(${v.alpha.c},0.0,1.0)` : ""};`);
+    return lines;
+  }
+  shape(s, sc, ind) {
+    const { v, num } = this.shapeValues(s, sc, COMMON, s.type);
+    if (!this.inDefine) this.draws++;
+    const color = v.color ? asCol(v.color) : "vec3(1.0)";
+    this.out.push(...this.coverage(s, v, num, ind), `${ind}  if (cv > 0.0) col = mix(col, ${color}, cv); }`);
+    return s.def && s.def.cost ? s.def.cost(s.str) : 1;
   }
 };
 function compile(source) {
@@ -1093,16 +1392,19 @@ function compile(source) {
   if (!errors.length && c.draws === 0) {
     errors.push({ line: 1, message: "nothing to draw yet: add a fill or a shape" });
   }
-  const warnings = [];
+  const costs = [...c.lineCost].map(([line, k]) => ({ line, cost: Math.round(k) })).filter((x) => x.cost > 0).sort((a, b) => b.cost - a.cost || a.line - b.line);
+  const heaviest = costs.slice(0, 3).map((x) => `line ${x.line} (${x.cost})`).join(", ");
+  const warnings = c.warnings.sort((a, b) => a.line - b.line);
   if (cost > LIMITS.warnCost) {
-    warnings.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes (noise and fbm count as several); this may be slow on phones` });
+    warnings.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes (noise and fbm count as several); this may be slow on phones. Heaviest: ${heaviest}` });
   }
   if (cost > LIMITS.cost) {
-    errors.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes, over the limit of ${LIMITS.cost}; use smaller repeat counts or less noise and fbm inside repeat` });
+    errors.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes, over the limit of ${LIMITS.cost}; use smaller repeat counts or less noise and fbm inside repeat. Heaviest: ${heaviest}` });
   }
   const bps = program.bpm / 60;
   const uniforms = program.inputs.map((i) => `uniform ${i.kind === "col" ? "vec3" : "float"} u_in_${glslName(i.name)};`).join("\n");
   const glsl = `${PRELUDE}${uniforms}
+${[...c.helpers.values()].join("\n")}
 ${c.funcs.join("\n")}
 void main(){
   ASPECT = u_res.x / u_res.y;
@@ -1124,10 +1426,13 @@ ${c.out.join("\n")}
     aspectLabel: program.aspectLabel,
     bpm: program.bpm,
     offset: program.offset,
+    beatsPerBar: program.bar,
     inputs: program.inputs.map(({ name, kind, value, min, max }) => ({ name, kind, value, min, max })),
     scenes: program.body.filter((b) => b.k === "scene").map(({ start, end, fadein, fadeout }) => ({ start, end, fadein, fadeout })),
     defines: [...c.defs.keys()],
-    cost: Math.round(cost)
+    plugins: program.uses.map((p) => p.name),
+    cost: Math.round(cost),
+    costs
   };
 }
 
@@ -1648,8 +1953,8 @@ Lines are drawn in order: later lines paint over earlier ones. Comments start wi
 
 Setup (top of the program, all optional):
 canvas 16:9                        // or canvas 9:16, canvas 1:1 (default). Then x goes 0 to aspect (1.778 for 16:9)
-duration 8
-bpm 120 offset=0                   // tempo for beat and pulse; offset = seconds before the first beat
+duration 8                         // or in bars: duration bars 16
+bpm 120 offset=0 bar=4             // tempo for beat and pulse; offset = seconds before the first beat; bar = beats per bar
 input wind = 0.5 min=0 max=1       // a value the host page can change live (number or color)
 
 Drawing (one command per line, values are named):
@@ -1662,6 +1967,7 @@ tri     x1= y1= x2= y2= x3= y3=
 ring    cx= cy= r= width=
 arc     cx= cy= r= width= start= end=  // part of a ring; degrees, 0 = right, 90 = down
 star    cx= cy= r= inner= points= angle=   // inner = 0-1 depth of the points, default 5 points
+curve   x1= y1= cx= cy= x2= y2= width=     // a line from x1,y1 to x2,y2 bent toward cx,cy (smiles, ropes, tails)
 Every shape also takes: color= alpha= (0 to 1) blur= (soft edge width) stroke= (outline width instead of filled).
 Sizes and positions share the same units (1 = canvas height). angle is in degrees, clockwise.
 A shape's color can vary per pixel, like color=mix(red, yellow, y).
@@ -1670,11 +1976,17 @@ let name = formula                 // reusable number or color, may use x, y, t
 Blocks (close each with end):
 repeat i 12                        // i = 0, 1, ..., 11
 scene 6 12 fade=0.5                // only draws from 6 s to 12 s; fade (or fadein/fadeout) in seconds
-                                   // inside a scene: st = seconds since the scene began, sp = scene progress 0-1
+scene bars 9 16                    // or bars 9 to 16 (counting from 1, both included), following the tempo
+                                   // inside a scene: st = seconds since it began, sp = progress 0-1, sb = beats since it began
 define hero cx=0.5 cy=0.5 s=1 tint=gold   // a reusable drawing (character, cloud) with named values and defaults
 end
 hero cx=0.3 s=0.8                  // draw it anywhere, as often as needed, changing only what differs
 Inside define, use its own values plus x, y, t and inputs; pass anything else in as a value. Define it above where it is used.
+group cx= cy= angle= scale= flip= dx= dy=   // turns, scales and mirrors (flip=-1) the lines inside around cx,cy
+                                   // (default: canvas center), then moves them by dx,dy; coordinates inside stay the same
+clip circle cx= cy= r=             // draws the lines inside only within that shape (any shape; invert=1 for outside)
+camera cx= cy= zoom= angle=        // like group, for the rest of its block (a scene), without end
+hero cx=0.3 angle=20 flip=-1       // a define call also takes angle scale flip dx dy, turning around its own cx,cy
 
 Colors: #rgb or #rrggbb, rgb(r,g,b) with 0-1 values, hsl(hue_degrees, s, l) with s and l 0-1, gray(v),
 names: white black red green blue yellow orange purple pink cyan magenta gray navy teal brown gold sky.
@@ -1685,6 +1997,7 @@ min max clamp(v) clamp(v,lo,hi) mix(a,b,k) smoothstep(edge0,edge1,v) step(edge,v
 dist(x1,y1,x2,y2) = distance between two points. Constants: pi tau.
 Motion: keys(t, 0, 0.2, 1.5, 0.8, 3, 0.2) moves smoothly through values at key times (values may be colors);
 ease(v) easein(v) easeout(v) backout(v) (overshoots) bounce(v) take 0-1 progress; pingpong(v) goes 0 to 1 to 0 each unit.
+spring(t - 2, freq, damping) swings between -1 and 1 from 2 s on and dies out (defaults 2, 4); hits(t, 1, 2.5) is 1 at each time, fading fast.
 Randomness: noise(a,b) or noise(a,b,c) smooth 0-1; fbm(a,b) or fbm(a,b,c) cloudy 0-1; hash(n) fixed random 0-1 per number.
 Rhythm: beat = beats since the first beat, pulse = 1 on every beat, fading to 0 before the next.
 Pointer: mx, my = where the viewer's pointer is (canvas center until it moves).
@@ -1704,7 +2017,7 @@ repeat i 5
 end`;
 
 // src/index.js
-var version = "0.2.0";
+var version = "0.3.0";
 if (typeof window !== "undefined") defineElement();
 export {
   BUILTINS,
@@ -1716,5 +2029,6 @@ export {
   defineElement,
   parse,
   reference,
+  use,
   version
 };

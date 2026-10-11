@@ -38,12 +38,17 @@ export interface CompileResult {
   aspectLabel: string;
   bpm: number;
   offset: number;
+  beatsPerBar: number;
   inputs: InputInfo[];
   scenes: SceneInfo[];
   /** Names of reusable drawings. */
   defines: string[];
+  /** Plugins the program uses (`use text`). */
+  plugins: string[];
   /** Work per pixel in the busiest moment, in shapes (noise and fbm count as several). */
   cost: number;
+  /** Which lines the cost comes from, heaviest first: each line's cost per pixel while it is drawn. */
+  costs: Array<{ line: number; cost: number }>;
 }
 
 /** Compile XYT source to a GLSL fragment shader. Never throws for problems in the source. */
@@ -133,6 +138,17 @@ export class Player {
   on(event: 'play' | 'pause' | 'end', fn: () => void): () => void;
   destroy(): void;
 }
+
+/** A plugin: more commands for programs that say `use NAME`. Its reference adds to the model reference. */
+export interface XytPlugin {
+  name: string;
+  /** Language reference for models, to add after `reference` when the plugin is loaded. */
+  reference: string;
+  shapes?: Record<string, unknown>;
+}
+
+/** Make a plugin's commands available to programs that start with `use NAME`. */
+export function use(plugin: XytPlugin): void;
 
 /** Register the <xyt-player> element. Done automatically when the library loads in a browser. */
 export function defineElement(tag?: string): void;

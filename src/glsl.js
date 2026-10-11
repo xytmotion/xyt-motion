@@ -29,6 +29,11 @@ float e_bounce(float v){ v = clamp(v, 0.0, 1.0);
   if (v < 0.90909091) { v -= 0.81818182; return 7.5625*v*v + 0.9375; }
   v -= 0.95454545; return 7.5625*v*v + 0.984375; }
 
+// a wobble that starts at t = 0: swings between -1 and 1 at f per second, dying out at rate d
+float spring(float t, float f, float d){ return t <= 0.0 ? 0.0 : exp(-d*t) * sin(6.28318531*f*t); }
+// 1 at the moment of a hit, fading quickly (hits() takes the largest over its times)
+float hit(float t){ return t < 0.0 ? 0.0 : exp(-t*8.0); }
+
 // sin-free hashes (stable across GPUs), value noise and fractal noise
 float h11(float p){ p = fract(p*0.1031 + 0.3183); p *= p + 33.33; p *= p + p; return fract(p); }
 float h21(vec2 p){ vec3 q = fract(vec3(p.xyx)*0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y)*q.z); }
@@ -72,6 +77,21 @@ float sdArc(vec2 p, float r, float w, float a0, float a1){ float sw = clamp(a1 -
   if (rel <= sw) return abs(length(p) - r) - w*0.5;
   vec2 e0 = r*vec2(cos(radians(a0)), sin(radians(a0))); vec2 e1 = r*vec2(cos(radians(a0 + sw)), sin(radians(a0 + sw)));
   return min(length(p - e0), length(p - e1)) - w*0.5; }
+// quadratic Bezier curve from A to C pulled toward B, exact distance (after Inigo Quilez, MIT).
+// Nearly straight curves use a segment: the cubic solution loses precision there.
+float sdBez(vec2 pos, vec2 A, vec2 B, vec2 C){
+  vec2 a = B - A; vec2 b = A - 2.0*B + C; vec2 c = a*2.0; vec2 d = A - pos; vec2 ac = C - A;
+  float bb = dot(b, b);
+  if (bb < 1e-5*dot(ac, ac) + 1e-12) return sdSeg(pos, A, C);
+  float kk = 1.0/bb; float kx = kk*dot(a, b); float ky = kk*(2.0*dot(a, a) + dot(d, b))/3.0; float kz = kk*dot(d, a);
+  float p = ky - kx*kx; float q = kx*(2.0*kx*kx - 3.0*ky) + kz; float h = q*q + 4.0*p*p*p;
+  float res;
+  if (h >= 0.0) { h = sqrt(h); vec2 x = (vec2(h, -h) - q)*0.5; vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+    float t = clamp(uv.x + uv.y - kx, 0.0, 1.0); vec2 e = d + (c + b*t)*t; res = dot(e, e); }
+  else { float z = sqrt(-p); float v = acos(clamp(q/(p*z*2.0), -1.0, 1.0))/3.0; float m = cos(v); float n = sin(v)*1.732050808;
+    vec3 t = clamp(vec3(m + m, -n - m, n - m)*z - kx, 0.0, 1.0);
+    vec2 e1 = d + (c + b*t.x)*t.x; vec2 e2 = d + (c + b*t.y)*t.y; res = min(dot(e1, e1), dot(e2, e2)); }
+  return sqrt(res); }
 // n-pointed star, one point straight up at angle 0; k = inner radius / outer radius
 float sdStar(vec2 p, float r, float k, float n, float deg){ p = rot(p, deg);
   n = max(floor(n + 0.5), 2.0); k = clamp(k, 0.05, 1.0);

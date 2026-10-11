@@ -10,8 +10,8 @@ Lines are drawn in order: later lines paint over earlier ones. Comments start wi
 
 Setup (top of the program, all optional):
 canvas 16:9                        // or canvas 9:16, canvas 1:1 (default). Then x goes 0 to aspect (1.778 for 16:9)
-duration 8
-bpm 120 offset=0                   // tempo for beat and pulse; offset = seconds before the first beat
+duration 8                         // or in bars: duration bars 16
+bpm 120 offset=0 bar=4             // tempo for beat and pulse; offset = seconds before the first beat; bar = beats per bar
 input wind = 0.5 min=0 max=1       // a value the host page can change live (number or color)
 
 Drawing (one command per line, values are named):
@@ -24,6 +24,7 @@ tri     x1= y1= x2= y2= x3= y3=
 ring    cx= cy= r= width=
 arc     cx= cy= r= width= start= end=  // part of a ring; degrees, 0 = right, 90 = down
 star    cx= cy= r= inner= points= angle=   // inner = 0-1 depth of the points, default 5 points
+curve   x1= y1= cx= cy= x2= y2= width=     // a line from x1,y1 to x2,y2 bent toward cx,cy (smiles, ropes, tails)
 Every shape also takes: color= alpha= (0 to 1) blur= (soft edge width) stroke= (outline width instead of filled).
 Sizes and positions share the same units (1 = canvas height). angle is in degrees, clockwise.
 A shape's color can vary per pixel, like color=mix(red, yellow, y).
@@ -32,11 +33,17 @@ let name = formula                 // reusable number or color, may use x, y, t
 Blocks (close each with end):
 repeat i 12                        // i = 0, 1, ..., 11
 scene 6 12 fade=0.5                // only draws from 6 s to 12 s; fade (or fadein/fadeout) in seconds
-                                   // inside a scene: st = seconds since the scene began, sp = scene progress 0-1
+scene bars 9 16                    // or bars 9 to 16 (counting from 1, both included), following the tempo
+                                   // inside a scene: st = seconds since it began, sp = progress 0-1, sb = beats since it began
 define hero cx=0.5 cy=0.5 s=1 tint=gold   // a reusable drawing (character, cloud) with named values and defaults
 end
 hero cx=0.3 s=0.8                  // draw it anywhere, as often as needed, changing only what differs
 Inside define, use its own values plus x, y, t and inputs; pass anything else in as a value. Define it above where it is used.
+group cx= cy= angle= scale= flip= dx= dy=   // turns, scales and mirrors (flip=-1) the lines inside around cx,cy
+                                   // (default: canvas center), then moves them by dx,dy; coordinates inside stay the same
+clip circle cx= cy= r=             // draws the lines inside only within that shape (any shape; invert=1 for outside)
+camera cx= cy= zoom= angle=        // like group, for the rest of its block (a scene), without end
+hero cx=0.3 angle=20 flip=-1       // a define call also takes angle scale flip dx dy, turning around its own cx,cy
 
 Colors: #rgb or #rrggbb, rgb(r,g,b) with 0-1 values, hsl(hue_degrees, s, l) with s and l 0-1, gray(v),
 names: white black red green blue yellow orange purple pink cyan magenta gray navy teal brown gold sky.
@@ -47,6 +54,7 @@ min max clamp(v) clamp(v,lo,hi) mix(a,b,k) smoothstep(edge0,edge1,v) step(edge,v
 dist(x1,y1,x2,y2) = distance between two points. Constants: pi tau.
 Motion: keys(t, 0, 0.2, 1.5, 0.8, 3, 0.2) moves smoothly through values at key times (values may be colors);
 ease(v) easein(v) easeout(v) backout(v) (overshoots) bounce(v) take 0-1 progress; pingpong(v) goes 0 to 1 to 0 each unit.
+spring(t - 2, freq, damping) swings between -1 and 1 from 2 s on and dies out (defaults 2, 4); hits(t, 1, 2.5) is 1 at each time, fading fast.
 Randomness: noise(a,b) or noise(a,b,c) smooth 0-1; fbm(a,b) or fbm(a,b,c) cloudy 0-1; hash(n) fixed random 0-1 per number.
 Rhythm: beat = beats since the first beat, pulse = 1 on every beat, fading to 0 before the next.
 Pointer: mx, my = where the viewer's pointer is (canvas center until it moves).

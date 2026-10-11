@@ -3,7 +3,7 @@
 //   node scripts/playground.mjs --inline   -> one self-contained file with the library inside
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 
-const ORDER = ['pip', 'journey', 'watcher', 'ball', 'spinner', 'progress', 'sunset', 'plasma', 'clouds', 'ripples', 'stars', 'fire', 'clock'];
+const ORDER = ['pip', 'journey', 'watcher', 'bells', 'karaoke', 'ball', 'spinner', 'progress', 'sunset', 'plasma', 'clouds', 'ripples', 'stars', 'fire', 'clock'];
 export function loadExamples(dir = 'examples') {
   const files = readdirSync(dir).filter((f) => f.endsWith('.xyt'));
   const list = files.map((f) => {
@@ -17,7 +17,9 @@ export function loadExamples(dir = 'examples') {
 
 export function buildPlayground({ inline = false, hooks = {} } = {}) {
   let html = readFileSync('playground/template.html', 'utf8');
-  const bundle = inline ? `<script>${readFileSync('dist/xyt.min.js', 'utf8')}</script>` : '<script src="../dist/xyt.min.js"></script>';
+  // the library and the text plugin, which registers itself
+  const bundle = ['xyt.min.js', 'xyt-text.min.js']
+    .map((f) => (inline ? `<script>${readFileSync(`dist/${f}`, 'utf8')}</script>` : `<script src="../dist/${f}"></script>`)).join('\n');
   const examples = JSON.stringify(loadExamples()).replace(/</g, '\\u003c');
   html = html.replace('<!--HOOK:bundle-->', () => bundle).replace('/*HOOK:examples*/[]', () => examples);
   for (const key of ['css', 'sections', 'after', 'script']) {
@@ -30,5 +32,5 @@ export function buildPlayground({ inline = false, hooks = {} } = {}) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const inline = process.argv.includes('--inline');
   writeFileSync('playground/index.html', buildPlayground({ inline }));
-  console.log('playground/index.html', inline ? '(self-contained)' : '(uses ../dist/xyt.min.js)');
+  console.log('playground/index.html', inline ? '(self-contained)' : '(uses ../dist/xyt.min.js and ../dist/xyt-text.min.js)');
 }

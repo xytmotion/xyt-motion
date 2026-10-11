@@ -2,7 +2,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { compile, parse, reference, version } from '../src/index.js';
+import { compile, parse, reference, version, use } from '../src/index.js';
+import text from '../src/plugins/text.js';
+
+use(text); // some examples write text
 
 const errorsOf = (src) => compile(src).errors.map((e) => `${e.line}: ${e.message}`);
 const firstError = (src) => (compile(src).errors[0] || {}).message || '';
@@ -197,9 +200,10 @@ test('xyt declares the language version', () => {
   assert.equal(compile('xyt 0.2\nfill red').ok, true);
   assert.equal(compile('xyt 0.1 // older programs still run\nfill red').ok, true);
   assert.equal(parse('xyt 0.2\nfill red').version, '0.2');
-  assert.match(firstError('xyt 0.3\nfill red'), /written for XYT 0\.3, newer than this library/);
+  assert.equal(compile('xyt 0.3\nfill red').ok, true);
+  assert.match(firstError('xyt 0.4\nfill red'), /written for XYT 0\.4, newer than this library/);
   assert.match(firstError('xyt 1.0\nfill red'), /newer than this library/);
-  assert.match(firstError('xyt two\nfill red'), /like: xyt 0\.2/);
+  assert.match(firstError('xyt two\nfill red'), /like: xyt 0\.3/);
 });
 
 test('cost counts noise and fbm as several shapes, and stops runaway programs', () => {
@@ -215,4 +219,93 @@ test('cost counts noise and fbm as several shapes, and stops runaway programs', 
 
 test('the exported version matches package.json', () => {
   assert.equal(version, JSON.parse(readFileSync('package.json', 'utf8')).version);
+});
+
+test('group: turn, scale, mirror and move what is inside', () => {
+  const r = compile('group cx=0.9 cy=0.1 angle=20 * sin(t) scale=0.8 flip=-1 dx=0.01 dy=0\n  rect cx=0.9 cy=0.2 color=mix(red, gold, y)\nend');
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.match(r.glsl, /PP = rot\(PP - c - vec2\(\(0\.01\), \(0\.0\)\), \(\(20\.0 \* sin\(T\)\)\)\) \/ s;/);
+  assert.equal(compile('group x=0.5 y=0.5 rotation=10 zoom=2 mirror=-1\n circle\nend').ok, true, 'aliases');
+  assert.equal(compile('group\n circle\nend').ok, true, 'all values are optional');
+  assert.match(firstError('group angel=10\n circle\nend'), /group has no 'angel'.*Did you mean 'angle'/);
+  assert.match(firstError('group angle=red\n circle\nend'), /'angle' must be a number/);
+  assert.match(firstError('group\nend\ncircle'), /this group is empty/);
+  assert.match(firstError('group\n circle'), /group has no matching 'end'/);
+  assert.match(firstError('group\n scene 0 1\n circle\n end\nend'), /can't go inside a group/);
+  assert.match(firstError('group angle=10 circle\n circle\nend'), /group takes named values like angle=30/);
+  assert.match(firstError('group\n let k = 1\nend\ncircle r=k'), /unknown name 'k'/, 'values made inside a group stay inside');
+});
+
+test('camera: lasts until the end of its block; a later one replaces it', () => {
+  const r = compile('scene 0 4\n camera cx=1 cy=0.4 zoom=1 + sp\n circle\n camera angle=10\n circle\nend\ncircle');
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  const main = r.glsl.split('void main(){')[1];
+  assert.equal((main.match(/vec2 sp_\d+ = PP;/g) || []).length, 1, 'saved once per block');
+  assert.equal((main.match(/PP = sp_\d+;/g) || []).length, 2, 'restored before the second camera and at the end of the scene');
+  assert.ok(main.lastIndexOf('PP = sp_') < main.indexOf('if (T >= 0.0') + main.slice(main.indexOf('if (T >= 0.0')).indexOf('\n  }'), 'restored inside the scene');
+  assert.match(firstError('camera scale=2 zoom=3\ncircle'), /'scale' is given twice/);
+  assert.match(firstError('camera zom=2\ncircle'), /camera has no 'zom'.*Did you mean 'zoom'/);
+});
+
+test('clip: draw only inside a shape', () => {
+  const r = compile('fill navy\nclip circle cx=0.5 cy=0.5 r=0.3 * ease(p * 2) blur=0.01\n  fill gold\n  star\nend');
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.match(r.glsl, /if \(cc_\d+ > 0\.0\) \{/);
+  assert.equal(r.cost, 4, 'fill + clip shape + fill + star');
+  assert.equal(compile('clip rectangle w=0.5 h=0.5 invert=1\n fill red\nend').ok, true, 'shape aliases and invert');
+  assert.match(firstError('clip circle color=red\n fill red\nend'), /clip circle has no 'color'\. A clip shape is not drawn/);
+  assert.match(firstError('clip circle opacity=0.5\n fill red\nend'), /A clip shape is not drawn/);
+  assert.match(firstError('clip\n fill red\nend'), /clip needs a shape/);
+  assert.match(firstError('clip blob r=1\n fill red\nend'), /clip needs a shape/);
+  assert.match(firstError('clip circle\nend\nfill red'), /this clip circle is empty/);
+});
+
+test('a define call can turn, scale, mirror and move its drawing', () => {
+  const src = 'define bell cx=0.5 cy=0.2 s=1\n  circle cx=cx cy=cy + 0.1 * s r=0.05 * s\nend\n';
+  const r = compile(src + 'bell cx=0.3 angle=30 * spring(t - 1) scale=2 flip=-1 dx=0.1 dy=0');
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.match(r.glsl, /vec2 c = vec2\(\(0\.3\), \(0\.2\)\)/, 'turns around its own cx, cy');
+  assert.match(compile('define dot k=1\n  circle\nend\ndot angle=10').glsl, /vec2 c = vec2\(\(ASPECT\*0\.5\), 0\.5\)/, 'or the canvas center');
+  assert.match(compile('define dial angle=0\n  line x2=0.5 + 0.3 * cos(angle) y2=0.5\nend\ndial angle=1').glsl, /f_dial\(col, 1\.0\)/, "the define's own value wins");
+  assert.match(firstError(src + 'bell size=2'), /bell has no 'size'.*and angle, scale, flip, dx, dy to turn/);
+});
+
+test('spring and hits', () => {
+  const r = compile('circle cx=0.5 + 0.1 * spring(t - 1) cy=0.5 + 0.1 * spring(t, 3) r=0.1 + 0.05 * spring(t - 2, 1.5, 2) + 0.05 * hits(t, 1, 2.5, 4)');
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.match(r.glsl, /spring\(\(T - 1\.0\),2\.0,4\.0\)/);
+  assert.match(r.glsl, /max\(max\(hit\(T - 1\.0\),hit\(T - 2\.5\)\),hit\(T - 4\.0\)\)/);
+  assert.match(firstError('circle r=hits(t)'), /hits\(\) takes a time, then the times/);
+  assert.match(firstError('circle r=spring(t, 1, 2, 3)'), /spring\(\) takes 1 to 3 values/);
+});
+
+test('cost breakdown: which lines the cost comes from', () => {
+  const src = ['define zed cx=0.5', ...Array.from({ length: 10 }, () => '  circle cx=cx'), 'end', 'fill navy', 'repeat i 12', '  zed cx=i / 12', 'end', 'circle r=noise(x, t)'].join('\n');
+  const r = compile(src);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(r.cost, 124);
+  assert.deepEqual(r.costs, [{ line: 15, cost: 120 }, { line: 17, cost: 3 }, { line: 13, cost: 1 }]);
+  assert.deepEqual(r.warnings.map((w) => w.line), [15]);
+  assert.match(r.warnings[0].message, /zed costs about 10 shapes and repeat draws it 12 times, so this line alone costs about 120/);
+  const heavy = compile('repeat i 100\n repeat j 5\n  circle\n end\nend');
+  assert.match(heavy.warnings.at(-1).message, /Heaviest: line 3 \(500\)/);
+});
+
+test('timing in bars follows the tempo', () => {
+  // 96 bpm, 4 beats per bar: one bar is 2.5 s
+  const r = compile('bpm 96\nscene bars 1 8\n fill red\nend\nscene bars 9 16 fade=0.5\n circle r=0.1 + 0.01 * sb\nend');
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.deepEqual(r.scenes.map((s) => [s.start, s.end]), [[0, 20], [20, 40]]);
+  assert.equal(r.duration, 40, 'duration follows the last scene');
+  assert.equal(r.beatsPerBar, 4);
+  assert.match(r.glsl, /float v_sb_\d+ = v_st_\d+ \* 1\.6;/);
+  assert.deepEqual(compile('bpm 120 offset=0.5 bar=3\nscene bars 2 2\n fill red\nend').scenes.map((s) => [s.start, s.end]), [[2, 3.5]], 'offset and 3 beats per bar');
+  assert.equal(compile('scene bars 1 1\n fill red\nend\nbpm 60').scenes[0].end, 4, 'the tempo may come after the scene');
+  assert.equal(compile('bpm 96 offset=1\nduration bars 24\nfill red').duration, 61);
+  assert.equal(compile('scene bar 1 2\n fill red\nend').ok, true, '"bar" works too');
+  assert.match(firstError('scene bars 0 4\n fill red\nend'), /counting from 1, both included/);
+  assert.match(firstError('scene bars 5 4\n fill red\nend'), /counting from 1, both included/);
+  assert.match(firstError('bpm 120 bar=0\nfill red'), /whole number of beats per bar/);
+  assert.match(firstError('bpm 120 bars=4\nfill red'), /bpm has no 'bars'\. Did you mean 'bar'\?/);
+  assert.match(firstError('fill red alpha=sb'), /'sb' only exists inside a scene block/);
 });

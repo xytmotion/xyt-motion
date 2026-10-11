@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+From the feedback of a model that wrote a one-minute cartoon in XYT.
+
+- `group cx= cy= angle= scale= flip= dx= dy=` turns, scales, mirrors and moves the lines inside around a point;
+  `camera` does the same for the rest of its block; define calls take `angle`, `scale`, `flip`, `dx` and `dy`.
+- `clip SHAPE ...` draws the lines inside only within a shape, with `blur`, `stroke` and `invert`.
+- `spring(t, freq, damping)` for swings that die out, `hits(t, t1, t2, ...)` for a flash at each listed time.
+- Compile results list `costs`: which lines the cost comes from. A warning names the line when `repeat`
+  multiplies a define's cost past 100.
+- The `xyt` command line: `check`, and `render --at`, `--sheet`, `--mp4 --audio` with headless Chromium
+  (Playwright, optional) and ffmpeg.
+- `curve x1= y1= cx= cy= x2= y2= width=`: a quadratic Bézier curve.
+- Timing in bars: `bpm 96 bar=4`, `scene bars 9 16` (from 1, both included), `duration bars 24`, and `sb`,
+  the beats since a scene began.
+- Plugins: the page loads them with `use(plugin)` (or a script tag), programs name them with `use NAME`.
+- The text plugin (`xyt-motion/text`, `dist/xyt-text.min.js`): `text "..." x= y= size= align= weight= spacing= reveal=`
+  with the Hershey Roman Simplex font, accented Latin letters including Serbian and Croatian, and `clip text`.
+- New examples: bells, karaoke. Language version 0.3.
+
 ## 0.2.0
 
 First release as a library.

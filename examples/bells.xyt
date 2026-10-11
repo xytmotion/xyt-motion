@@ -1,0 +1,32 @@
+// Bells: three bells rung in turn, each swinging around its hanger and dying out like a real one
+xyt 0.3
+canvas 16:9
+duration 8
+
+define bell cx=0.5 cy=0.2 s=1 tint=#e8b923
+  line x1=cx y1=cy x2=cx y2=cy + 0.05 * s width=0.012 * s color=#4a2f1d
+  circle cx=cx cy=cy + 0.175 * s r=0.022 * s color=#6b4423
+  ellipse cx=cx cy=cy + 0.1 * s rx=0.06 * s ry=0.065 * s color=tint
+  rect cx=cx cy=cy + 0.13 * s w=0.12 * s h=0.06 * s color=tint
+  ellipse cx=cx cy=cy + 0.16 * s rx=0.09 * s ry=0.022 * s color=mix(tint, #7a4a26, 0.35)
+  ellipse cx=cx - 0.025 * s cy=cy + 0.1 * s rx=0.012 * s ry=0.04 * s color=white alpha=0.35
+end
+
+// an iris opens at the start and closes at the end, so the loop meets itself in the dark
+clip circle cx=aspect / 2 cy=0.5 r=1.1 * ease(t) * ease(dur - t)
+  camera cx=aspect / 2 cy=0.45 zoom=1 + 0.1 * ease(p)
+  fill mix(#232454, #f2a65a, y * 1.1)
+  repeat i 30
+    star cx=hash(i) * aspect cy=0.4 * hash(i + 40) r=0.004 + 0.004 * hash(i + 80) color=#fff6c0 alpha=(0.5 - y) * (0.6 + 0.4 * sin(t * 3 + i))
+  end
+  ellipse cx=0.4 cy=1.15 rx=0.9 ry=0.35 color=#2c3b5c
+  ellipse cx=1.4 cy=1.2 rx=0.8 ry=0.35 color=#24314e
+  rect cx=aspect / 2 cy=0.27 w=1.6 h=0.035 color=#4a2f1d
+  repeat i 3
+    let bx = aspect / 2 + (i - 1) * 0.45
+    let sound = hits(t, 1.2 + i, 4.2 + i)
+    // a define call turns its drawing around the drawing's own cx, cy: here, the hanger
+    bell cx=bx cy=0.28 s=1.2 - 0.25 * abs(i - 1) angle=28 * (spring(t - 1.2 - i, 0.9, 0.8) + spring(t - 4.2 - i, 0.9, 0.8))
+    ring cx=bx cy=0.48 r=0.06 + 0.3 * (1 - sound) width=0.008 color=#fff3c4 alpha=0.8 * sound
+  end
+end

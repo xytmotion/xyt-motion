@@ -30,6 +30,14 @@ The starting question was whether images and video could be described pixel by p
 - **Thin shapes fade by thickness.** Shapes thinner than a pixel fade in proportion. Without this, a size-zero shape still left a hairline from anti-aliasing, and a blinking eye drew a line across the whole picture.
 - **Default color is white, default canvas is black.** Something always shows, with maximum contrast.
 - **Programs can declare their language version** with `xyt 0.2`. Nothing depends on it yet: it is there so later versions can keep old programs' meaning, and so an older library reports a newer program instead of misreading it.
+- **Transforms turn around a point, and coordinates inside stay the same.** `group`, `camera` and define calls turn and scale around `cx`, `cy` instead of moving the origin, so a drawing written in canvas coordinates turns in place (a bell around its hanger) without being rewritten. In the shader it is one change of the sampling point, plus the pixel size, so edges stay sharp at any zoom. The first model-written cartoon spelled its camera out as `ox + X * z` 286 times; that is what `camera` replaces.
+- **`camera` lasts until the end of its block.** One line per scene instead of wrapping the scene in a group.
+- **`clip` blends like a scene fade**, by the shape's coverage, and pixels outside skip its contents.
+- **The command line renders with the real player** in headless Chromium, so its frames are exactly what browsers show. Playwright is an optional dependency, and `xyt check` needs nothing, so the library stays dependency-free.
+- **Plugins: the page loads them, programs only name them.** `use text` makes a loaded plugin's commands available; a program can never load code, so it stays safe from any source. A plugin brings its own section of the model reference, so models only pay tokens for what the page offers. Plugin shapes go through the same pipeline as built-in ones, so they get color, alpha, blur, stroke, transforms and clip for free. The plugin interface is internal for now: it becomes a public contract once a second plugin has proven it.
+- **Text is a stroke font, not a texture.** The Hershey Roman Simplex font keeps "one program, one shader" and resolution independence. Each letter is one GLSL function and each text line checks a box per letter, so a pixel only measures the strokes of the letters near it. Accented letters are composed from the letter and a few accent strokes. Hershey's only Cyrillic is a serif design that wouldn't match, and the single-stroke fonts that cover Cyrillic under a free license turned out to be GPL, so Cyrillic is open.
+- **Bars count like musicians count.** `scene bars 9 16` means bars 9 to 16, from 1, both included, so consecutive scenes read `1 8`, `9 16`. Bars become seconds when the program compiles.
+- **Curves fall back to a segment when nearly straight.** The exact distance to a quadratic Bézier solves a cubic that loses precision there: measured, curves within 0.00001 of straight drew hundreds of wrong pixels on both a GPU and SwiftShader.
 - **`cost` is an estimate, and its limit is a safety net.** Programs come from models and strangers, and a single frame that takes seconds makes the browser drop the GPU context. `noise` and `fbm` count as several shapes because they are; the limit sits far above any real picture.
 
 ## Bugs the prototype taught us
@@ -45,9 +53,8 @@ The starting question was whether images and video could be described pixel by p
 
 ## Open questions
 
-- **Text.** Signed-distance font atlas (needs a texture, breaks "one shader") or a stroke font built from lines and arcs (pure math, limited style)?
-- **Paths.** Quadratic Bézier distance functions would make characters far more expressive; the open part is a syntax a model can write reliably.
+- **More scripts for text.** Cyrillic (Russian and Serbian) in the same single-stroke style needs drawing: about half the letters reuse Latin shapes or mirror them.
+- **Filled shapes from curves.** `curve` draws lines; a filled outline made of curves is the next step for characters, and the open part is a syntax a model can write reliably.
 - **Sound.** The player already accepts an external clock (`() => audio.currentTime`) and `bpm`/`offset`. Next: song sections (`section chorus 32 48`) so a model can sync to a track's structure.
-- **Export.** `setSize`, `renderAt` and `readPixels` produce exact frames; a command-line exporter (PNG sequence, ffmpeg) is the obvious next tool.
 - **Performance at scale.** Every pixel evaluates every active shape. Bounding-box culling or tiling would help scenes with thousands of shapes.
-- **Render-and-check loops.** Letting a model see its own rendered frame and correct it is the most promising way to raise quality beyond "it compiles."
+- **Render-and-check loops.** Letting a model see its own rendered frame and correct it is the most promising way to raise quality beyond "it compiles." `xyt render --sheet` makes the frames; measuring how much they help is next.

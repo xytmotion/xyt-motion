@@ -13,10 +13,19 @@ await build({ ...common, format: 'iife', globalName: 'XYT', minify: true, outfil
 copyFileSync('src/index.d.ts', 'dist/xyt.d.mts');
 copyFileSync('src/index.d.ts', 'dist/xyt.d.cts');
 
+// Plugins: their own files, so the library stays small. The script tag build registers itself.
+const plugin = { ...common, entryPoints: ['src/plugins/text.js'], banner: { js: banner.replace('xyt-motion', 'xyt-motion text plugin') } };
+await build({ ...plugin, format: 'esm', outfile: 'dist/text.mjs' });
+await build({ ...plugin, format: 'cjs', outfile: 'dist/text.cjs' });
+await build({ ...plugin, format: 'iife', globalName: 'XYTText', minify: true, outfile: 'dist/xyt-text.min.js',
+  footer: { js: 'if (typeof XYT !== "undefined" && XYT.use) XYT.use(XYTText.text);' } });
+copyFileSync('src/plugins/text.d.ts', 'dist/text.d.mts');
+copyFileSync('src/plugins/text.d.ts', 'dist/text.d.cts');
+
 const { reference } = await import('../src/reference.js');
 writeFileSync('docs/llm-reference.md', '# XYT reference for language models\n\n' +
   'Give this text to a model together with a request, and ask it to reply with only the XYT program.\n' +
   'It is also exported by the library as `reference`.\n\n```text\n' + reference + '\n```\n');
-for (const f of ['dist/xyt.mjs', 'dist/xyt.cjs', 'dist/xyt.js', 'dist/xyt.min.js']) {
+for (const f of ['dist/xyt.mjs', 'dist/xyt.cjs', 'dist/xyt.js', 'dist/xyt.min.js', 'dist/xyt-text.min.js']) {
   console.log(f.padEnd(18), (readFileSync(f).length / 1024).toFixed(1) + ' KB');
 }

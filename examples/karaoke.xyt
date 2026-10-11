@@ -1,0 +1,43 @@
+// Karaoke: Frère Jacques timed in bars at 96 bpm, a gold sweep across each line and a singer whose smile is a curve
+xyt 0.3
+use text
+canvas 16:9
+bpm 96
+duration bars 8
+
+fill mix(#1d1b4c, #6b3f8f, y)
+repeat i 24
+  circle cx=hash(i) * aspect cy=0.55 * hash(i + 30) r=0.004 color=white alpha=0.3 + 0.6 * pulse * hash(i + 60)
+end
+
+// a singing face that bobs on the beat; the mouth opens with each pulse
+define singer cx=0.5 cy=0.5 open=0
+  circle cx=cx cy=cy r=0.11 color=#ffd27a
+  circle cx=cx - 0.038 cy=cy - 0.025 r=0.012 color=#2a1d3a
+  circle cx=cx + 0.038 cy=cy - 0.025 r=0.012 color=#2a1d3a
+  curve x1=cx - 0.05 y1=cy + 0.035 cx=cx cy=cy + 0.08 + 0.05 * open x2=cx + 0.05 y2=cy + 0.035 width=0.012 color=#2a1d3a
+  circle cx=cx - 0.07 cy=cy + 0.03 r=0.02 color=#ff8fa0 alpha=0.5 blur=0.02
+  circle cx=cx + 0.07 cy=cy + 0.03 r=0.02 color=#ff8fa0 alpha=0.5 blur=0.02
+end
+singer cx=aspect / 2 cy=0.33 - 0.012 * pulse open=pulse angle=4 * sin(beat * pi / 2)
+
+// each line: white, then gold revealed with the scene's progress; the next line waits below
+scene bars 1 2
+  text "Frère Jacques, Frère Jacques," x=aspect / 2 y=0.66 size=0.05 color=white
+  text "Frère Jacques, Frère Jacques," x=aspect / 2 y=0.66 size=0.05 color=gold reveal=sp
+  text "Dormez-vous ? Dormez-vous ?" x=aspect / 2 y=0.8 size=0.035 color=white alpha=0.35
+end
+scene bars 3 4
+  text "Dormez-vous ? Dormez-vous ?" x=aspect / 2 y=0.66 size=0.05 color=white
+  text "Dormez-vous ? Dormez-vous ?" x=aspect / 2 y=0.66 size=0.05 color=gold reveal=sp
+  text "Sonnez les matines, sonnez les matines," x=aspect / 2 y=0.8 size=0.035 color=white alpha=0.35
+end
+scene bars 5 6
+  text "Sonnez les matines, sonnez les matines," x=aspect / 2 y=0.66 size=0.05 color=white
+  text "Sonnez les matines, sonnez les matines," x=aspect / 2 y=0.66 size=0.05 color=gold reveal=sp
+  text "Ding, dang, dong. Ding, dang, dong." x=aspect / 2 y=0.8 size=0.035 color=white alpha=0.35
+end
+scene bars 7 8
+  text "Ding, dang, dong. Ding, dang, dong." x=aspect / 2 y=0.66 size=0.05 color=white
+  text "Ding, dang, dong. Ding, dang, dong." x=aspect / 2 y=0.66 size=0.05 color=gold reveal=sp
+end

@@ -18,7 +18,7 @@ That is a complete, looping animation: 120 bytes.
 - **Tiny.** The included 30-second, four-scene cartoon is 11 KB of text. Our ten benchmark animations are 136 to 701 bytes each, 29 to 704 times smaller than the same 4 seconds as H.264 video (plus the library, once per page: see [Benchmarks](#benchmarks)), and they stay sharp at any size.
 - **Written by people and by AI.** Named values (`cx=0.5`), clear error messages with fix suggestions, forgiving aliases, and math that cannot crash. The language reference for models is about 1,000 tokens. In an informal early test, a model given only that reference wrote all ten benchmark animations, and they compiled and rendered as well as the hand-written ones.
 - **Live.** Programs can read the pointer (`mx`, `my`), the beat (`beat`, `pulse`) and inputs your page changes at runtime, which a video file never can.
-- **Small library.** 17 KB gzipped, no dependencies, TypeScript types included, WebGL 1, runs on practically every browser and phone.
+- **Small library.** 21 KB gzipped, no dependencies, TypeScript types included, WebGL 1, runs on practically every browser and phone. Text is a 5 KB plugin for pages that need it.
 
 Status: early (0.2). The language may still change before 1.0.
 
@@ -62,6 +62,23 @@ if (!result.ok) console.log(result.errors); // [{ line: 3, message: "circle has 
 else useShader(result.glsl);               // a GLSL ES 1.00 fragment shader
 ```
 
+### Command line
+
+```sh
+npx xyt-motion check film.xyt          # errors, warnings, and which lines the cost comes from
+```
+
+Rendering runs the real player in headless Chromium, so it needs Playwright (an optional dependency) and, for video, ffmpeg:
+
+```sh
+npm i -D xyt-motion playwright && npx playwright install chromium
+npx xyt render film.xyt --at 12.5                  # one frame as PNG
+npx xyt render film.xyt --sheet                    # 12 frames across the duration on one PNG
+npx xyt render film.xyt --mp4 --audio song.mp3     # H.264 video with a sound track
+```
+
+Frames are exactly what a browser shows. Options: `--height`, `--fps`, `--from`/`--to`, `--frames`, `--set name=value` for inputs, `-o` for the output file. A language model writing XYT can use `check` and `--sheet` to read its errors and look at its own frames.
+
 ## The language in two minutes
 
 Coordinates run from 0 to 1 down the canvas (`y`, top to bottom) and from 0 to `aspect` across it (`x`, 1 on the default square canvas). `t` is seconds, `p` is loop progress from 0 to 1. **Every value can be a formula.** Lines paint in order, later over earlier.
@@ -90,9 +107,13 @@ scene 0 6 fade=0.5                          // only between 0 and 6 seconds
 end
 ```
 
-Motion helpers: `keys(t, 0, 0.2, 1.5, 0.8, 3, 0.2)` moves smoothly through values at key times (colors work too), `ease easein easeout backout bounce pingpong`. Texture: `noise fbm hash`. Rhythm: `bpm 120` then `beat` and `pulse`. Interaction: `mx`, `my`, and `input name = 0.5` for values your page controls.
+Transforms: `group cx= cy= angle= scale= flip=` turns, scales and mirrors what it holds around a point (a bell around its hanger), `camera` does the same for the rest of a scene, and `clip circle ...` draws its contents only inside a shape. A define call takes `angle`, `scale` and `flip` directly.
 
-Full reference: [docs/language.md](docs/language.md). Thirteen examples: [examples/](examples/).
+Motion helpers: `keys(t, 0, 0.2, 1.5, 0.8, 3, 0.2)` moves smoothly through values at key times (colors work too), `ease easein easeout backout bounce pingpong`, `spring(t - 2)` for a swing that dies out, `hits(t, 1, 2.5)` for a flash at each listed time. Texture: `noise fbm hash`. Rhythm: `bpm 120` then `beat` and `pulse`. Interaction: `mx`, `my`, and `input name = 0.5` for values your page controls.
+
+Shapes include `curve`, a line bent toward a control point. Scenes can be timed in bars (`bpm 96` then `scene bars 9 16`) so a program follows the tempo of the track under it.
+
+Full reference: [docs/language.md](docs/language.md). Fifteen examples: [examples/](examples/).
 
 ## Using it with a language model
 
@@ -112,7 +133,30 @@ if (!result.ok) {
 }
 ```
 
-The same text is in [docs/llm-reference.md](docs/llm-reference.md). Programs are pure drawing: they cannot touch the page, the network or storage, so running model-written XYT is far safer than running model-written HTML or JavaScript. They can still be slow: `compile` rejects programs past a cost limit and warns well before it, so check `warnings` before showing a model's program to other people.
+The same text is in [docs/llm-reference.md](docs/llm-reference.md). When a page loads a plugin, add its reference too: `${reference}\n\n${text.reference}`. Programs are pure drawing: they cannot touch the page, the network or storage, so running model-written XYT is far safer than running model-written HTML or JavaScript. They can still be slow: `compile` rejects programs past a cost limit and warns well before it, so check `warnings` before showing a model's program to other people.
+
+## Plugins: text
+
+Plugins add commands for the pages that want them, and keep the library small for everyone else. The first one draws text: titles, lyrics, karaoke, credits.
+
+```html
+<script src="https://unpkg.com/xyt-motion/dist/xyt.min.js"></script>
+<script src="https://unpkg.com/xyt-motion/dist/xyt-text.min.js"></script>  <!-- registers itself -->
+```
+
+```js
+import { use } from 'xyt-motion';
+import text from 'xyt-motion/text';
+use(text);
+```
+
+```text
+use text
+text "Frère Jacques" x=aspect / 2 y=0.7 size=0.06 color=white
+text "Frère Jacques" x=aspect / 2 y=0.7 size=0.06 color=gold reveal=sp   // the karaoke sweep
+```
+
+Text is drawn with strokes, like every shape, so it turns, scales, blurs and clips like one. It covers ASCII and accented Latin letters for French, Spanish, Portuguese, German, Serbian and Croatian, Czech and most of Polish. A program can only name a plugin the page loaded (`use text`), never load code. Details: [docs/language.md](docs/language.md#plugins).
 
 ## API
 
@@ -131,6 +175,8 @@ Never throws for problems in the source. Returns:
 | `scenes` | `[{ start, end, fadein, fadeout }]` |
 | `defines` | names of reusable drawings |
 | `cost` | work per pixel in the busiest moment, in shapes (`noise` and `fbm` count as several); a performance estimate |
+| `costs` | `[{ line, cost }]`, heaviest first: which lines the cost comes from, while they are drawn |
+| `plugins` | plugins the program uses (`use text`) |
 
 ### `new Player(canvas, options)`
 
@@ -183,16 +229,16 @@ Ten animations, 4 seconds at 512 × 512 and 30 fps:
 | Campfire flame | 203 B | 110 KB | 540× | no clean way |
 | Analog clock | 701 B | 20 KB | 29× | 2.2 KB |
 
-These sizes are the program text alone. The library adds 17 KB gzipped, once per page. With a single animation, a short video can still be smaller (the progress bar's 12 KB) and the clock comes out about even, while gradients and noise stay several times smaller (the plasma: about 17 KB against 130 KB). Every further animation on the page costs only its text.
+These sizes are the program text alone. The library adds 21 KB gzipped, once per page. With a single animation, a short video can still be smaller (the progress bar's 12 KB) and the clock comes out about even, while gradients and noise stay several times smaller (the plasma: about 21 KB against 130 KB). Every further animation on the page costs only its text.
 
 Run-length encoding the frames instead works well for flat graphics, but on gradients and noise neighbouring pixels never match: the plasma came out 17% *larger* than raw pixels. That is exactly where formulas win.
 
 ## Limitations and roadmap
 
-- **No text yet**, and no free-form curves; characters are built from circles, ellipses, triangles and arcs.
+- **Text** covers Latin scripts; no Cyrillic, Greek or other scripts yet. **Curves** are lines (quadratic Bézier); there are no filled free-form shapes.
 - **No memory between frames**: an XYT program is a pure function of x, y and t. Games keep their state in JavaScript and pass it in through inputs.
 - **Sound sync**: planned around `clock` (drive time from an `<audio>` element) plus `bpm` and `offset`. Song structure markers are next.
-- **Export**: `setSize` + `renderAt` + `readPixels` already produce exact frames; a command-line exporter (PNG sequence and MP4 through ffmpeg) is planned.
+- **Export**: `xyt render --mp4` (see [Command line](#command-line)), or `setSize` + `renderAt` + `readPixels` from your own code.
 - WebGL 2 and faster rendering for scenes with thousands of shapes.
 
 ## Development
@@ -200,15 +246,15 @@ Run-length encoding the frames instead works well for flat graphics, but on grad
 ```sh
 npm install
 npm run build     # dist/ bundles and docs/llm-reference.md
-npm test          # parser, compiler and player logic, no GPU needed
-npm run test:gpu  # renders every example and checks <xyt-player> in headless Chromium
+npm test          # parser, compiler, player logic and `xyt check`, no GPU needed (uses dist/: build first)
+npm run test:gpu  # renders every example, checks transforms, <xyt-player> and `xyt render` in headless Chromium
                   # (first run: npx playwright install chromium)
 ```
 
 The playground (`playground/index.html`, rebuilt by `npm run build`) loads `../dist/xyt.min.js`, so serve the repository root (as [GitHub Pages](https://xytmotion.github.io/xyt-motion/playground/) does) and open `/playground/`. `node scripts/playground.mjs --inline` makes a single self-contained file instead. `node scripts/readme-gif.mjs` re-renders the animation at the top of this page. It has a live editor, all examples, sliders for each `input`, a scene timeline, a pixel probe and a size measurement.
 
-The source is small and plain: `src/parser.js` (text to syntax tree), `src/compiler.js` (types and GLSL), `src/glsl.js` (shape and noise functions), `src/player.js` (WebGL runtime), `src/element.js` (`<xyt-player>`), `src/reference.js` (the model reference), `src/index.d.ts` (TypeScript types). Design notes and the reasoning behind the language are in [DESIGN.md](DESIGN.md).
+The source is small and plain: `src/parser.js` (text to syntax tree), `src/compiler.js` (types and GLSL), `src/glsl.js` (shape and noise functions), `src/player.js` (WebGL runtime), `src/element.js` (`<xyt-player>`), `src/reference.js` (the model reference), `src/index.d.ts` (TypeScript types), `src/registry.js` and `src/plugins/` (plugins and the text plugin), `bin/xyt.mjs` (the command line). Design notes and the reasoning behind the language are in [DESIGN.md](DESIGN.md).
 
 ## License
 
-MIT
+MIT. The text plugin's letters are the Hershey Roman Simplex font: the Hershey Fonts were originally created by Dr. A. V. Hershey while working at the U. S. National Bureau of Standards; the format of the font data was originally created by James Hurt, Cognition, Inc. They may be used for any purpose with this acknowledgement.

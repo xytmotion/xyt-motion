@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "main": "../dist/text.cjs",
+  "module": "../dist/text.mjs",
+  "types": "../dist/text.d.cts"
+}

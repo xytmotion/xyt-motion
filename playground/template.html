@@ -191,7 +191,7 @@ const app = (function () {
   const kb = (n) => n < 1000 ? n + ' B' : n < 1e6 ? (n / 1000).toFixed(n < 1e4 ? 1 : 0) + ' KB' : (n / 1e6).toFixed(n < 1e7 ? 2 : 1) + ' MB';
   const bytesOf = (s) => new TextEncoder().encode(s).length;
   const fmtNum = (v) => String(+v.toFixed(2));
-  $('spec').textContent = XYT.reference;
+  $('spec').textContent = XYT.reference + (window.XYTText ? '\n\n' + XYTText.text.reference : '');
 
   let player;
   try {
