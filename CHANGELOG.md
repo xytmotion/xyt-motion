@@ -21,6 +21,8 @@ From the feedback of a model that wrote a one-minute cartoon in XYT.
 - Fonts for text: `text.addFont()` takes Hershey `.jhf`, SVG fonts or strokes; letters come from the first font
   that has them, `font=NAME` picks one first. `xyt-motion/text/cyrillic` (`dist/xyt-text-cyrillic.min.js`): the
   Russian alphabet in Hershey's serif Cyrillic. `xyt render --font file.svg`.
+- Text draws the curves of stroke fonts as smooth splines through the font's points, so large text has
+  round curves instead of visible facets; real corners stay sharp.
 - New examples: bells, karaoke. Language version 0.3.
 
 ## 0.2.0

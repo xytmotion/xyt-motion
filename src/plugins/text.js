@@ -14,11 +14,52 @@ const CAP = 21; // capital height in font units: from -12 to the baseline at 9
 const MID = -1.5; // the middle of the capitals, where y= puts the text
 const u = (code) => String.fromCharCode(code);
 
+// Stroke fonts draw curves as a few straight segments, which show as corners in large text. A stroke
+// keeps its real corners (turns over 75 degrees, like the bottom of a V) and the curves between them
+// become a centripetal Catmull-Rom spline through the font's points, a few segments per point.
+const CORNER = Math.cos(75 * Math.PI / 180);
+function smooth(stroke) {
+  const p = stroke.filter((q, i) => !i || q[0] !== stroke[i - 1][0] || q[1] !== stroke[i - 1][1]);
+  const n = p.length;
+  if (n < 3) return p;
+  const closed = n > 3 && p[0][0] === p[n - 1][0] && p[0][1] === p[n - 1][1];
+  const at = (i) => (closed ? p[((i % (n - 1)) + (n - 1)) % (n - 1)] : p[i]);
+  // the cosine of the turn at each point; the ends of an open stroke count as corners
+  const turn = p.map((_, i) => {
+    if (!closed && (i === 0 || i === n - 1)) return -1;
+    const a = at(i - 1), b = at(i), c = at(i + 1);
+    const ax = b[0] - a[0], ay = b[1] - a[1], bx = c[0] - b[0], by = c[1] - b[1];
+    return (ax * bx + ay * by) / (Math.hypot(ax, ay) * Math.hypot(bx, by));
+  });
+  const out = [p[0]];
+  for (let i = 0; i < n - 1; i++) {
+    const b = p[i], c = p[i + 1];
+    const cornerB = turn[i] < CORNER, cornerC = turn[i + 1] < CORNER;
+    // a corner at either end of the span: continue its straight line, so the curve leaves along the segment
+    const a = cornerB ? [2 * b[0] - c[0], 2 * b[1] - c[1]] : at(i - 1);
+    const d = cornerC ? [2 * c[0] - b[0], 2 * c[1] - b[1]] : at(i + 2);
+    // about one segment per 12 degrees of turning at the span's smooth ends
+    const bend = Math.max(cornerB ? 0 : Math.acos(Math.min(1, turn[i])), cornerC ? 0 : Math.acos(Math.min(1, turn[i + 1])));
+    const k = Math.min(4, Math.ceil(bend / (12 * Math.PI / 180)));
+    const t1 = Math.hypot(b[0] - a[0], b[1] - a[1]) ** 0.5, t2 = t1 + Math.hypot(c[0] - b[0], c[1] - b[1]) ** 0.5;
+    const t3 = t2 + Math.hypot(d[0] - c[0], d[1] - c[1]) ** 0.5;
+    const lerp = (P, Q, s0, s1, s) => [P[0] + (Q[0] - P[0]) * (s - s0) / (s1 - s0), P[1] + (Q[1] - P[1]) * (s - s0) / (s1 - s0)];
+    for (let j = 1; j < k; j++) {
+      const s = t1 + (t2 - t1) * j / k;
+      const A1 = lerp(a, b, 0, t1, s), A2 = lerp(b, c, t1, t2, s), A3 = lerp(c, d, t2, t3, s);
+      out.push(lerp(lerp(A1, A2, 0, t2, s), lerp(A2, A3, t1, t3, s), t1, t2, s));
+    }
+    out.push(c);
+  }
+  return out;
+}
+
 // A glyph: its advance width and its strokes, starting at x = 0, y pointing down, capitals from -12 to 9.
 function glyph(w, strokes, center = w / 2) {
   const segs = [];
-  for (const s of strokes) {
-    if (s.length === 1) segs.push([...s[0], ...s[0]]); // a dot
+  for (const raw of strokes) {
+    if (raw.length === 1) segs.push([...raw[0], ...raw[0]]); // a dot
+    const s = smooth(raw);
     for (let i = 1; i < s.length; i++) segs.push([...s[i - 1], ...s[i]]);
   }
   const ys = segs.flatMap((g) => [g[1], g[3]]);
