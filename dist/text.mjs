@@ -197,7 +197,17 @@ var HERSHEY = [
 // src/plugins/text.js
 var CAP = 21;
 var MID = -1.5;
-function decode(jhf) {
+var u = (code) => String.fromCharCode(code);
+function glyph(w, strokes, center = w / 2) {
+  const segs = [];
+  for (const s of strokes) {
+    if (s.length === 1) segs.push([...s[0], ...s[0]]);
+    for (let i = 1; i < s.length; i++) segs.push([...s[i - 1], ...s[i]]);
+  }
+  const ys = segs.flatMap((g) => [g[1], g[3]]);
+  return { w, strokes, segs, center, top: ys.length ? Math.min(...ys) : 0, bottom: ys.length ? Math.max(...ys) : 0 };
+}
+function jhfGlyph(jhf, fit) {
   const R = 82, left = jhf.charCodeAt(0) - R, right = jhf.charCodeAt(1) - R;
   const strokes = [];
   let cur = [];
@@ -207,67 +217,215 @@ function decode(jhf) {
       cur = [];
       continue;
     }
-    cur.push([jhf.charCodeAt(k) - R, jhf.charCodeAt(k + 1) - R]);
+    cur.push(fit(jhf.charCodeAt(k) - R - left, jhf.charCodeAt(k + 1) - R));
   }
   if (cur.length) strokes.push(cur);
-  return { ...glyph(right - left, strokes.map((s) => s.map(([x, y]) => [x - left, y]))), center: -left };
+  return glyph(fit(right - left, 0)[0], strokes, fit(-left, 0)[0]);
 }
-function glyph(w, strokes) {
-  const segs = [];
-  for (const s of strokes) {
-    if (s.length === 1) segs.push([...s[0], ...s[0]]);
-    for (let i = 1; i < s.length; i++) segs.push([...s[i - 1], ...s[i]]);
+function jhfFile(text2) {
+  const out = [], lines = String(text2).split(/\r?\n/);
+  for (let i = 0; i < lines.length; ) {
+    const line = lines[i++];
+    if (!line.trim()) continue;
+    const n = parseInt(line.slice(5, 8), 10);
+    let data = line.slice(8);
+    while (data.length < n * 2 && i < lines.length) data += lines[i++];
+    out.push(data.slice(0, n * 2));
   }
-  const ys = segs.flatMap((g) => [g[1], g[3]]);
-  return { w, strokes, segs, top: ys.length ? Math.min(...ys) : 0, bottom: ys.length ? Math.max(...ys) : 0 };
+  return out;
 }
-var GLYPHS = new Map(HERSHEY.map((jhf, i) => [String.fromCharCode(32 + i), decode(jhf)]));
+function pathStrokes(d) {
+  const toks = String(d).match(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/g) || [];
+  const strokes = [];
+  let i = 0, cmd = "", x = 0, y = 0, sx = 0, sy = 0, cx = 0, cy = 0, cur = null;
+  const n = () => Number(toks[i++]);
+  const to = (px, py) => {
+    if (!cur) {
+      cur = [[x, y]];
+      strokes.push(cur);
+    }
+    cur.push([px, py]);
+    x = px;
+    y = py;
+  };
+  const curve = (at) => {
+    const [x0, y0] = [x, y];
+    for (let k = 1; k <= 8; k++) to(...at(k / 8, x0, y0));
+  };
+  while (i < toks.length) {
+    if (/[a-zA-Z]/.test(toks[i])) cmd = toks[i++];
+    const C = cmd.toUpperCase(), rel = cmd !== C, ox = rel ? x : 0, oy = rel ? y : 0;
+    if (C === "M") {
+      x = n() + ox;
+      y = n() + oy;
+      sx = x;
+      sy = y;
+      cur = null;
+      cmd = rel ? "l" : "L";
+    } else if (C === "L") to(n() + ox, n() + oy);
+    else if (C === "H") to(n() + ox, y);
+    else if (C === "V") to(x, n() + oy);
+    else if (C === "Z") {
+      if (cur) to(sx, sy);
+      cur = null;
+    } else if (C === "C" || C === "S") {
+      const [x1, y1] = C === "C" ? [n() + ox, n() + oy] : [2 * x - cx, 2 * y - cy];
+      const x2 = n() + ox, y2 = n() + oy, x3 = n() + ox, y3 = n() + oy;
+      curve((t, a, b) => {
+        const v = 1 - t;
+        return [v * v * v * a + 3 * v * v * t * x1 + 3 * v * t * t * x2 + t * t * t * x3, v * v * v * b + 3 * v * v * t * y1 + 3 * v * t * t * y2 + t * t * t * y3];
+      });
+      cx = x2;
+      cy = y2;
+      continue;
+    } else if (C === "Q" || C === "T") {
+      const [x1, y1] = C === "Q" ? [n() + ox, n() + oy] : [2 * x - cx, 2 * y - cy];
+      const x2 = n() + ox, y2 = n() + oy;
+      curve((t, a, b) => {
+        const v = 1 - t;
+        return [v * v * a + 2 * v * t * x1 + t * t * x2, v * v * b + 2 * v * t * y1 + t * t * y2];
+      });
+      cx = x1;
+      cy = y1;
+      continue;
+    } else throw new Error(`a glyph's path uses '${cmd}', which stroke fonts here can't (M L H V Z C S Q T can)`);
+    cx = x;
+    cy = y;
+  }
+  return strokes;
+}
+var unescapeXml = (s) => s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+var attr = (tag, name) => {
+  var _a;
+  const m = new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)')`).exec(tag);
+  return m ? unescapeXml((_a = m[2]) != null ? _a : m[3]) : null;
+};
+function svgGlyphs(svg) {
+  const fontTag = (/<font[\s>][^>]*>/.exec(svg) || [""])[0], face = (/<font-face[^>]*>/.exec(svg) || [""])[0];
+  const advance = Number(attr(fontTag, "horiz-adv-x")) || 0;
+  const raw = [];
+  for (const tag of svg.match(/<glyph[^>]*>/g) || []) {
+    const ch = attr(tag, "unicode");
+    if (!ch || [...ch].length !== 1) continue;
+    raw.push({ ch, adv: Number(attr(tag, "horiz-adv-x")) || advance, strokes: pathStrokes(attr(tag, "d") || "") });
+  }
+  const H = raw.find((g) => g.ch === "H");
+  const cap = Number(attr(face, "cap-height")) || (H && H.strokes.length ? Math.max(...H.strokes.flat().map((p) => p[1])) : 0) || (Number(attr(face, "units-per-em")) || 1e3) * 0.7;
+  const k = CAP / cap;
+  return new Map(raw.map((g) => [g.ch, glyph(g.adv * k, g.strokes.map((s) => s.map(([px, py]) => [px * k, 9 - py * k])))]));
+}
+var fonts = [];
+function addFont(font) {
+  var _a;
+  if (!font || !/^[a-z][a-z0-9_]*$/.test(font.name || "")) {
+    throw new TypeError('addFont needs a font whose name is lowercase letters and digits, like { name: "cyrillic", jhf: ... }');
+  }
+  const k = CAP / (font.capHeight || CAP), base = (_a = font.baseline) != null ? _a : 9;
+  const fit = (x, y) => [x * k, 9 + (y - base) * k];
+  const glyphs = /* @__PURE__ */ new Map();
+  if (font.svg) for (const [ch, g] of svgGlyphs(font.svg)) glyphs.set(ch, g);
+  if (font.jhf) {
+    const list = Array.isArray(font.jhf) ? font.jhf : jhfFile(font.jhf);
+    const chars = font.chars ? [...font.chars] : list.map((_, i) => u(32 + i));
+    list.forEach((jhf, i) => {
+      if (chars[i]) glyphs.set(chars[i], jhfGlyph(jhf, fit));
+    });
+  }
+  for (const [ch, g] of Object.entries(font.glyphs || {})) glyphs.set(ch, glyph(g.width * k, g.strokes.map((s) => s.map(([x, y]) => fit(x, y)))));
+  if (!glyphs.size) throw new Error(`the font ${font.name} has no glyphs: give it jhf, svg or glyphs`);
+  const entry = { name: font.name, glyphs };
+  const at = fonts.findIndex((f) => f.name === font.name);
+  if (at >= 0) fonts[at] = entry;
+  else fonts.push(entry);
+  return text;
+}
 var dot = (x, y) => [[x - 1, y], [x, y + 1], [x + 1, y], [x, y - 1], [x - 1, y]];
 var ACCENTS = {
   acute: [[[-1, -7], [2, -11]]],
   grave: [[[-2, -11], [1, -7]]],
   circumflex: [[[-3, -8], [0, -11], [3, -8]]],
   caron: [[[-3, -11], [0, -8], [3, -11]]],
+  breve: [[[-3, -10.5], [-2, -9], [0, -8.5], [2, -9], [3, -10.5]]],
   diaeresis: [dot(-3, -9), dot(3, -9)],
   tilde: [[[-4, -8], [-3, -10], [-1, -10], [1, -8], [3, -8], [4, -10]]],
   ring: [[[0, -12], [-2, -11], [-2, -9], [0, -8], [2, -9], [2, -11], [0, -12]]],
   cedilla: [[[0, 9], [1, 11], [2, 12], [1, 14], [-1, 14]]]
 };
-var MARKS = { "\u0301": "acute", "\u0300": "grave", "\u0302": "circumflex", "\u0308": "diaeresis", "\u0303": "tilde", "\u030A": "ring", "\u0327": "cedilla", "\u030C": "caron" };
-function accented(baseChar, accent) {
-  const base = GLYPHS.get(baseChar);
+var MARKS = {
+  [u(769)]: "acute",
+  [u(768)]: "grave",
+  [u(770)]: "circumflex",
+  [u(780)]: "caron",
+  [u(774)]: "breve",
+  [u(776)]: "diaeresis",
+  [u(771)]: "tilde",
+  [u(778)]: "ring",
+  [u(807)]: "cedilla"
+};
+function accented(base, baseChar, accent) {
   const lift = accent !== "cedilla" && baseChar !== baseChar.toLowerCase() ? -7 : 0;
-  const strokes = baseChar === "i" ? base.strokes.filter((s) => Math.min(...s.map((p) => p[1])) > -10) : base.strokes;
-  return glyph(base.w, strokes.concat(ACCENTS[accent].map((s) => s.map(([x, y]) => [x + base.center, y + lift]))));
+  const strokes = baseChar === "i" || baseChar === "j" ? base.strokes.filter((s) => Math.min(...s.map((p) => p[1])) > -10) : base.strokes;
+  return glyph(base.w, strokes.concat(ACCENTS[accent].map((s) => s.map(([x, y]) => [x + base.center, y + lift]))), base.center);
 }
-function ligature(a, b, overlap) {
-  const ga = GLYPHS.get(a), gb = GLYPHS.get(b), shift = ga.w - overlap;
-  return glyph(ga.w + gb.w - overlap, ga.strokes.concat(gb.strokes.map((s) => s.map(([x, y]) => [x + shift, y]))));
+{
+  const g = new Map(HERSHEY.map((jhf, i) => [u(32 + i), jhfGlyph(jhf, (x, y) => [x, y])]));
+  const barred = (ch, y, from, to) => {
+    const base = g.get(ch), stems = base.segs.filter(([x0, y0, x1, y1]) => x0 === x1 && Math.min(y0, y1) === -12);
+    const x = ch === "D" ? Math.min(...stems.map((s) => s[0])) : Math.max(...stems.map((s) => s[0]));
+    return glyph(base.w, base.strokes.concat([[[x + from, y], [x + to, y]]]), base.center);
+  };
+  const ligature = (a, b, overlap) => {
+    const ga = g.get(a), gb = g.get(b), shift = ga.w - overlap;
+    return glyph(ga.w + gb.w - overlap, ga.strokes.concat(gb.strokes.map((s) => s.map(([x, y]) => [x + shift, y]))));
+  };
+  g.set("\u0111", barred("d", -8, -4, 3)).set("\u0110", barred("D", -1.5, -3, 5));
+  g.set("\u0153", ligature("o", "e", 5)).set("\u0152", ligature("O", "E", 6)).set("\xE6", ligature("a", "e", 5)).set("\xC6", ligature("A", "E", 5));
+  g.set("\xAB", glyph(14, [[[5, -3], [1, 2], [5, 7]], [[10, -3], [6, 2], [10, 7]]]));
+  g.set("\xBB", glyph(14, [[[4, -3], [8, 2], [4, 7]], [[9, -3], [13, 2], [9, 7]]]));
+  fonts.push({ name: "simplex", glyphs: g });
 }
-for (const ch of "\xE0\xE1\xE2\xE3\xE4\xE5\xE8\xE9\xEA\xEB\xEC\xED\xEE\xEF\xF1\xF2\xF3\xF4\xF5\xF6\xF9\xFA\xFB\xFC\xFD\xFF\xE7\u010D\u0107\u0161\u017E\u0159\u011B\u0148\u0144\u015B\u017A\xC0\xC1\xC2\xC3\xC4\xC5\xC8\xC9\xCA\xCB\xCC\xCD\xCE\xCF\xD1\xD2\xD3\xD4\xD5\xD6\xD9\xDA\xDB\xDC\xDD\xC7\u010C\u0106\u0160\u017D\u0158\u011A\u0147\u0143\u015A\u0179") {
-  const [base, ...marks] = ch.normalize("NFD");
-  GLYPHS.set(ch, accented(base, MARKS[marks[0]]));
+var chainFor = (name) => name ? [fonts.find((f) => f.name === name), ...fonts.filter((f) => f.name !== name)] : fonts;
+var LOOKALIKE = { "\u0408": "J", "\u0458": "j", "\u0405": "S", "\u0455": "s", "\u0406": "I", "\u0456": "i" };
+function find(ch, chain) {
+  for (const f of chain) {
+    const g = f.glyphs.get(ch);
+    if (g) return { font: f, g };
+  }
+  const [base, mark, ...more] = ch.normalize("NFD");
+  if (mark && !more.length && MARKS[mark]) {
+    const b = find(base, chain);
+    if (b) {
+      const g = accented(b.g, base, MARKS[mark]);
+      b.font.glyphs.set(ch, g);
+      return { font: b.font, g };
+    }
+  }
+  const same = LOOKALIKE[ch] && find(LOOKALIKE[ch], chain);
+  if (same) {
+    same.font.glyphs.set(ch, same.g);
+    return same;
+  }
+  return null;
 }
-function barred(baseChar, y, from, to) {
-  const base = GLYPHS.get(baseChar);
-  const stems = base.segs.filter(([x0, y0, x1, y1]) => x0 === x1 && Math.min(y0, y1) === -12);
-  const x = baseChar === "D" ? Math.min(...stems.map((g) => g[0])) : Math.max(...stems.map((g) => g[0]));
-  return glyph(base.w, base.strokes.concat([[[x + from, y], [x + to, y]]]));
-}
-GLYPHS.set("\u0111", barred("d", -8, -4, 3));
-GLYPHS.set("\u0110", barred("D", -1.5, -3, 5));
-GLYPHS.set("\u0153", ligature("o", "e", 5));
-GLYPHS.set("\u0152", ligature("O", "E", 6));
-GLYPHS.set("\xE6", ligature("a", "e", 5));
-GLYPHS.set("\xC6", ligature("A", "E", 5));
-GLYPHS.set("\xAB", glyph(14, [[[5, -3], [1, 2], [5, 7]], [[10, -3], [6, 2], [10, 7]]]));
-GLYPHS.set("\xBB", glyph(14, [[[4, -3], [8, 2], [4, 7]], [[9, -3], [13, 2], [9, 7]]]));
-var SAME_AS = { "\u2019": "'", "\u2018": "'", "\u201C": '"', "\u201D": '"', "\u2013": "-", "\u2014": "-", "\u2026": "...", "\xA0": " ", "\u202F": " " };
+var SAME_AS = {
+  [u(8217)]: "'",
+  [u(8216)]: "'",
+  [u(8220)]: '"',
+  [u(8221)]: '"',
+  [u(8211)]: "-",
+  [u(8212)]: "-",
+  [u(8230)]: "...",
+  [u(160)]: " ",
+  [u(8239)]: " "
+};
 var prepare = (str) => [...str.normalize("NFC")].map((c) => {
   var _a;
   return (_a = SAME_AS[c]) != null ? _a : c;
 }).join("");
-var fmt = (v) => Number.isInteger(v) ? v.toFixed(1) : String(v);
+var fmt = (v) => {
+  const r = Math.round(v * 1e3) / 1e3;
+  return Number.isInteger(r) ? r.toFixed(1) : String(r);
+};
 var hash = (s) => {
   let h = 2166136261;
   for (const c of s) {
@@ -276,23 +434,17 @@ var hash = (s) => {
   }
   return (h >>> 0).toString(16);
 };
-function glyphFunction(ch) {
-  const name = `xg_${ch.codePointAt(0)}`;
-  const g = GLYPHS.get(ch);
-  const lines = g.segs.map(([x0, y0, x1, y1]) => `  d = min(d, sdSeg(p, vec2(${fmt(x0)}, ${fmt(y0)}), vec2(${fmt(x1)}, ${fmt(y1)})));`);
-  return [name, `float ${name}(vec2 p){ float d = 1e4;
-${lines.join("\n")}
-  return d; }`];
-}
-function textFunction(str, add) {
-  const chars = [...prepare(str)];
+function textFunction(str, fontName, add) {
+  const chain = chainFor(fontName), chars = [...prepare(str)];
   let x = 0, top = 0, bottom = 0;
   const parts = [];
   chars.forEach((ch, i) => {
-    const g = GLYPHS.get(ch);
+    const { font, g } = find(ch, chain);
     if (g.segs.length) {
-      const [fn, code] = glyphFunction(ch);
-      add(fn, code);
+      const fn = `xg_${fonts.indexOf(font)}_${ch.codePointAt(0)}`;
+      add(fn, `float ${fn}(vec2 p){ float d = 1e4;
+${g.segs.map(([x0, y0, x1, y1]) => `  d = min(d, sdSeg(p, vec2(${fmt(x0)}, ${fmt(y0)}), vec2(${fmt(x1)}, ${fmt(y1)})));`).join("\n")}
+  return d; }`);
       parts.push(`  { float o = ${fmt(x)} + sp * ${fmt(i)};
     if (q.x > o - pad && q.x < o + ${fmt(g.w)} + pad && q.y > ${fmt(g.top)} - pad && q.y < ${fmt(g.bottom)} + pad) d = min(d, ${fn}(q - vec2(o, 0.0))); }`);
       top = Math.min(top, g.top);
@@ -300,7 +452,7 @@ function textFunction(str, add) {
     }
     x += g.w;
   });
-  const name = `xt_${hash(str)}`;
+  const name = `xt_${hash(`${fontName || ""}|${str}`)}`;
   add(name, `float ${name}(vec2 p, float size, float weight, float align, float reveal, float spacing, float blur){
   float S = max(abs(size), 1e-6) / ${fmt(CAP)}; float sp = spacing * ${fmt(CAP)}; float W = ${fmt(x)} + sp * ${fmt(Math.max(chars.length - 1, 0))};
   float hw = abs(weight) * ${fmt(CAP / 2)}; float pad = hw + 1.5 * max(blur, PX) / S + 1.0;
@@ -311,26 +463,38 @@ ${parts.join("\n")}
   return max(d - hw, q.x - (reveal * (W + 2.0 * pad) - pad)) * S; }`);
   return name;
 }
-var text = {
-  name: "text",
-  reference: `Text (the program starts with: use text):
+var REFERENCE = `Text (the program starts with: use text):
 text "Fr\xE8re Jacques" x= y= size= color=    // one line of text; x, y = its center, size = height of capitals
   align=left|center|right (default center) weight=0.12 (stroke width, relative to size) spacing=0 (extra, relative to size)
   reveal=0-1 shows it from the left, for karaoke: draw it white, then again in gold with reveal=sp. Accents work (\xE9 \xE7 \xF1 \xFC \u0153 \u010D \u0161 \u017E \u0111).
-clip text "WORD" size=0.3 draws the lines inside only within the letters.`,
+clip text "WORD" size=0.3 draws the lines inside only within the letters.`;
+var text = {
+  name: "text",
+  // the model reference names the fonts loaded on this page
+  get reference() {
+    return fonts.length > 1 ? `${REFERENCE}
+Fonts: ${fonts.map((f) => f.name).join(", ")}. Each letter comes from the first that has it; font=NAME picks one first.` : REFERENCE;
+  },
+  addFont,
+  /** Names of the loaded fonts, in the order letters are looked up. */
+  fonts: () => fonts.map((f) => f.name),
   shapes: {
     text: {
       string: true,
       values: { x: 0.5, y: 0.5, size: 0.1, weight: 0.12, align: 0.5, reveal: 1, spacing: 0 },
       aliases: { cx: "x", cy: "y", height: "size", thickness: "weight", progress: "reveal", letterspacing: "spacing" },
       names: { align: { left: 0, center: 0.5, middle: 0.5, right: 1 } },
-      check(str) {
+      // values fixed when the program compiles, given as a name
+      fixed: { font: () => fonts.map((f) => f.name) },
+      check(str, fixed) {
         if (!str.trim()) return "text needs something to write between the quotes";
-        const missing = [...new Set([...prepare(str)].filter((c) => !GLYPHS.has(c)))];
-        return missing.length ? `text can't draw ${missing.map((c) => `'${c}'`).join(", ")} yet; it draws ASCII letters, digits and punctuation, and accented Latin letters like \xE9 \xE8 \xE7 \xF1 \xFC \u0153 \u010D \u0107 \u0161 \u017E \u0111` : null;
+        const chain = chainFor(fixed.font);
+        const missing = [...new Set([...prepare(str)].filter((c) => !find(c, chain)))];
+        if (!missing.length) return null;
+        return `text can't draw ${missing.map((c) => `'${c}'`).join(", ")} with the fonts loaded here (${fonts.map((f) => f.name).join(", ")}).` + (fonts.length === 1 ? " It draws ASCII and accented Latin letters like \xE9 \xE7 \xF1 \xFC \u0153 \u010D \u0161 \u017E \u0111; the page can add fonts with other letters, like xyt-motion/text/cyrillic." : "");
       },
-      distance(str, num, add) {
-        const fn = textFunction(str, add);
+      distance(str, num, add, fixed) {
+        const fn = textFunction(str, fixed.font, add);
         return `${fn}(PP - vec2(${num("x")}, ${num("y")}), ${num("size")}, ${num("weight")}, ${num("align")}, ${num("reveal")}, ${num("spacing")}, ${num("blur")})`;
       },
       thickness: (str, num) => `abs(${num("weight")} * ${num("size")})`,

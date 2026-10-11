@@ -18,6 +18,9 @@ From the feedback of a model that wrote a one-minute cartoon in XYT.
 - Plugins: the page loads them with `use(plugin)` (or a script tag), programs name them with `use NAME`.
 - The text plugin (`xyt-motion/text`, `dist/xyt-text.min.js`): `text "..." x= y= size= align= weight= spacing= reveal=`
   with the Hershey Roman Simplex font, accented Latin letters including Serbian and Croatian, and `clip text`.
+- Fonts for text: `text.addFont()` takes Hershey `.jhf`, SVG fonts or strokes; letters come from the first font
+  that has them, `font=NAME` picks one first. `xyt-motion/text/cyrillic` (`dist/xyt-text-cyrillic.min.js`): the
+  Russian alphabet in Hershey's serif Cyrillic. `xyt render --font file.svg`.
 - New examples: bells, karaoke. Language version 0.3.
 
 ## 0.2.0

@@ -41,6 +41,16 @@
         "default": "./dist/text.cjs"
       }
     },
+    "./text/cyrillic": {
+      "import": {
+        "types": "./dist/text-cyrillic.d.mts",
+        "default": "./dist/text-cyrillic.mjs"
+      },
+      "require": {
+        "types": "./dist/text-cyrillic.d.cts",
+        "default": "./dist/text-cyrillic.cjs"
+      }
+    },
     "./reference": "./docs/llm-reference.md",
     "./package.json": "./package.json"
   },

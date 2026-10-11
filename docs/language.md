@@ -234,9 +234,27 @@ One line of text, drawn with strokes like the other shapes, so it takes `color`,
 | `weight` | 0.12 | stroke width, relative to `size` |
 | `spacing` | 0 | extra space between letters, relative to `size` |
 | `reveal` | 1 | how much of the text shows, from the left: draw a line in white, then again in gold with `reveal=sp`, and the gold sweeps across like karaoke |
+| `font` | | the name of a loaded font to look letters up in first, like `font=cyrillic`; a name, not a formula |
 
 Accepted alternatives: `cx`/`cy` for `x`/`y`, `height` for `size`, `thickness` for `weight`, `progress` for `reveal`.
 
-It draws ASCII letters, digits and punctuation; accented Latin letters for French, Spanish, Portuguese, German, Serbian and Croatian, Czech and most of Polish (é è ê ë à ç ñ ü ö œ æ č ć š ž đ ř ě ň ń ś ź, with their capitals); and « » ’ “ ” – — …. Other characters are an error that names them. Each text line costs about 2 shapes plus one per six characters: a pixel only measures the strokes of the letters near it.
+It draws ASCII letters, digits and punctuation; accented Latin letters for French, Spanish, Portuguese, German, Serbian and Croatian, Czech and most of Polish (é è ê ë à ç ñ ü ö œ æ č ć š ž đ ř ě ň ń ś ź, with their capitals); and « » ’ “ ” – — …. Other characters are an error that names them and the fonts loaded. Each text line costs about 2 shapes plus one per six characters: a pixel only measures the strokes of the letters near it.
 
-The letters are the Hershey Roman Simplex font. The Hershey Fonts were originally created by Dr. A. V. Hershey while working at the U. S. National Bureau of Standards. The format of the Font data in this distribution was originally created by James Hurt, Cognition, Inc., 900 Technology Park Drive, Billerica, MA 01821 (mit-eddie!ci-dandelion!hurt).
+#### Fonts
+
+The page can add stroke fonts. Each letter comes from the first loaded font that has it, so adding a Cyrillic font makes `text "Привет"` work as it is; `font=NAME` looks in that font first for one line. An accented letter a font lacks is composed from its letter and the accent (Й from И, Ё from Е), and Ј Ѕ І are drawn as their Latin twins when no font has them.
+
+```js
+import text from 'xyt-motion/text';
+import cyrillic from 'xyt-motion/text/cyrillic';   // or load dist/xyt-text-cyrillic.min.js after the plugin
+text.addFont(cyrillic);
+text.addFont({ name: 'plotter', svg: svgFontFile });   // an SVG font: each glyph names its character
+text.addFont({ name: 'mine', jhf: jhfFile, chars: 'АБВ…' });   // a Hershey .jhf file and the character of each glyph
+text.addFont({ name: 'tiny', glyphs: { 'Ж': { width: 20, strokes: [[[0, 9], [10, -12], [20, 9]]] } } });
+```
+
+`.jhf` and `glyphs` use Hershey's units: y points down, capitals run from −12 to the baseline at 9 (give `capHeight` and `baseline` otherwise). SVG fonts are scaled by their `cap-height`, or by the height of their H. SVG paths may use `M L H V Z C S Q T`; curves become short segments. `text.fonts()` lists the loaded fonts; when there are several, the plugin's model reference lists them too.
+
+`xyt-motion/text/cyrillic` is the Russian alphabet from Hershey's serif Cyrillic (the only Cyrillic in the Hershey distribution), so it doesn't match the sans Latin letters. A font that has the Serbian Ђ Љ Њ Ћ Џ can be added the same way. The command line adds fonts with `--font file.svg`.
+
+The built-in letters are the Hershey Roman Simplex font, and the optional Cyrillic font is Hershey's Cyrillic. The Hershey Fonts were originally created by Dr. A. V. Hershey while working at the U. S. National Bureau of Standards. The format of the Font data in this distribution was originally created by James Hurt, Cognition, Inc., 900 Technology Park Drive, Billerica, MA 01821 (mit-eddie!ci-dandelion!hurt).

@@ -39,6 +39,16 @@ test('check: programs using the text plugin', () => {
   assert.match(r.stdout, /karaoke\.xyt: ok\. 16:9 canvas, 20 s/);
 });
 
+test('check: Cyrillic, and fonts from files with --font', () => {
+  assert.equal(xyt('check', program('ru.xyt', 'use text\ntext "Привет, Јелена"')).status, 0);
+  const svg = program('plotter.svg', '<svg><font horiz-adv-x="500"><glyph unicode="Ω" d="M 0 0 L 250 700 L 500 0"/></font></svg>');
+  const f = program('omega.xyt', 'use text\ntext "Ω" font=plotter');
+  assert.match(xyt('check', f).stderr, /'font' takes one of: simplex, cyrillic/);
+  const r = xyt('check', f, '--font', svg);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(xyt('check', f, '--font', 'README.md').stderr, /--font takes \.svg, \.jhf or \.json files/);
+});
+
 test('usage errors explain what to write', () => {
   assert.match(xyt('render', 'examples/ball.xyt').stderr, /exactly one of --at <seconds>, --sheet or --mp4/);
   assert.match(xyt('render', 'examples/watcher.xyt', '--at', '1', '--set', 'nope=1').stderr, /no input 'nope'; it has: mood, skin/);

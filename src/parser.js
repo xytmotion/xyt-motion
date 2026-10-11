@@ -189,9 +189,7 @@ export function parse(src) {
       const k = c.peek();
       if (!k || k.k !== 'str') throw new XytError(line, `${name} needs its words in quotes first, like: ${name} "Hello" x=0.5`);
       c.next();
-      str = k.v;
-      const problem = def.check && def.check(str);
-      if (problem) throw new XytError(line, problem);
+      str = k.v; // its letters are checked when compiling, once values like font= are known
     }
     return { plugin, def, str, attrs: parseNamed(c, what) };
   };

@@ -8,3 +8,4 @@ Thanks for helping. XYT stays useful by staying small, so a few guidelines:
 - **Examples** in `examples/` are both documentation and regression tests: each one must compile and render.
 - Keep the library dependency-free and WebGL 1 compatible.
 - **Plugins** (`src/plugins/`) are for vocabulary that only some pages need, especially when it carries data (a font). A plugin brings its own model reference. The plugin interface is internal until a second plugin proves it, so a new plugin is a good moment to discuss it in an issue first.
+- **Fonts** for the text plugin are welcome under licenses an MIT library can ship (public domain, MIT, the Hershey terms; not GPL). Credit them where the data lives and in the docs.

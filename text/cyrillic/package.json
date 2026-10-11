@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "main": "../../dist/text-cyrillic.cjs",
+  "module": "../../dist/text-cyrillic.mjs",
+  "types": "../../dist/text-cyrillic.d.cts"
+}

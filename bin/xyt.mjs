@@ -15,8 +15,10 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { compile, version, use } from '../dist/xyt.mjs';
 import text from '../dist/text.mjs';
+import cyrillic from '../dist/text-cyrillic.mjs';
 
 use(text); // programs that say `use text` work here and in the page below
+text.addFont(cyrillic);
 
 const USAGE = `xyt ${version}: check and render XYT programs
 
@@ -34,6 +36,7 @@ Options:
   --from <s>, --to <s>  mp4: time range (default: the whole duration)
   --audio <file>        mp4: sound track, cut to the video's length
   --set <name=value>    set an input, like --set wind=0.8 or --set tint=#ff8800 (repeatable)
+  --font <file>         add a stroke font for text: .svg font, .jhf (ASCII order) or .json (repeatable)
 
 Rendering needs Playwright (npm i -D playwright && npx playwright install chromium); --mp4 needs ffmpeg.`;
 
@@ -47,6 +50,7 @@ try {
       out: { type: 'string', short: 'o' }, at: { type: 'string' }, sheet: { type: 'boolean' }, mp4: { type: 'boolean' },
       height: { type: 'string' }, frames: { type: 'string' }, columns: { type: 'string' }, fps: { type: 'string' },
       from: { type: 'string' }, to: { type: 'string' }, audio: { type: 'string' }, set: { type: 'string', multiple: true },
+      font: { type: 'string', multiple: true },
       help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
     },
   });
@@ -59,6 +63,20 @@ if (!file) fail(`${command} needs a program file, like: xyt ${command} film.xyt`
 
 let source;
 try { source = readFileSync(file, 'utf8'); } catch (e) { fail(`could not read ${file}: ${e.message}`); }
+
+// Fonts from --font, named after their files: `xyt render film.xyt --font plotter.svg` gives font=plotter.
+const fonts = (opt.font || []).map((f) => {
+  let data;
+  try { data = readFileSync(f, 'utf8'); } catch (e) { fail(`could not read ${f}: ${e.message}`); }
+  const name = f.replace(/^.*[\\/]/, '').replace(/\.[^.]*$/, '').toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^([^a-z])/, 'f$1');
+  let font;
+  if (/\.svg$/i.test(f)) font = { name, svg: data };
+  else if (/\.jhf$/i.test(f)) font = { name, jhf: data };
+  else if (/\.json$/i.test(f)) { try { font = { name, ...JSON.parse(data) }; } catch (e) { fail(`${f} is not valid JSON: ${e.message}`); } }
+  else fail(`--font takes .svg, .jhf or .json files, got ${f}`);
+  try { text.addFont(font); } catch (e) { fail(`could not use the font ${f}: ${e.message}`); }
+  return font;
+});
 const result = compile(source);
 const where = (m) => (m.line ? `${file}:${m.line}: ` : `${file}: `);
 for (const e of result.errors) process.stderr.write(`${where(e)}error: ${e.message}\n`);
@@ -198,7 +216,8 @@ async function openPage() {
       await page.setContent('<!doctype html><canvas id="c"></canvas>');
       const ok = await page.evaluate(() => !!document.createElement('canvas').getContext('webgl'));
       if (!ok) { await browser.close(); lastError = new Error('no WebGL'); continue; }
-      for (const f of ['xyt.min.js', 'xyt-text.min.js']) await page.addScriptTag({ path: fileURLToPath(new URL(`../dist/${f}`, import.meta.url)) });
+      for (const f of ['xyt.min.js', 'xyt-text.min.js', 'xyt-text-cyrillic.min.js']) await page.addScriptTag({ path: fileURLToPath(new URL(`../dist/${f}`, import.meta.url)) });
+      await page.evaluate((list) => list.forEach((f) => XYTText.text.addFont(f)), fonts);
       await page.evaluate(setUpPage, { source, inputs });
       return page;
     } catch (e) {

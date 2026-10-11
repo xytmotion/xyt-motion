@@ -16,7 +16,7 @@ try { ({ chromium } = await import('playwright')); } catch {
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const sheetsArg = process.argv.indexOf('--sheets');
 const sheetsDir = sheetsArg > 0 ? process.argv[sheetsArg + 1] : null;
-const bundle = readFileSync(path.join(root, 'dist/xyt.min.js'), 'utf8') + '\n' + readFileSync(path.join(root, 'dist/xyt-text.min.js'), 'utf8');
+const bundle = ['xyt.min.js', 'xyt-text.min.js', 'xyt-text-cyrillic.min.js'].map((f) => readFileSync(path.join(root, 'dist', f), 'utf8')).join('\n');
 const examples = readdirSync(path.join(root, 'examples')).filter((f) => f.endsWith('.xyt')).sort();
 // Small programs that touch every feature, so each code path is compiled by a real GPU driver.
 const FEATURES = {
@@ -41,6 +41,8 @@ const FEATURES = {
     '  group cx=aspect / 2 cy=0.6 angle=10 * sin(sb)', '    text "«Ding»" x=aspect / 2 y=0.6 size=0.12 stroke=0.004 color=sky', '  end',
     '  clip text "XYT" x=aspect / 2 y=0.85 size=0.2 weight=0.3', '    fill hsl(x * 300 + t * 60, 0.8, 0.6)', '  end',
     '  curve x1=0.3 y1=0.45 cx=aspect / 2 cy=0.55 + 0.05 * sin(t) x2=aspect - 0.3 y2=0.45 width=0.01 color=pink', 'end'].join('\n'),
+  'cyrillic.xyt': ['use text', 'canvas 16:9', 'fill #14182a', 'text "Фрере Жак, спите ли вы?" x=aspect / 2 y=0.3 size=0.07 color=white',
+    'text "Ёлка, Йод, эхо, Јелена" x=aspect / 2 y=0.6 size=0.07 color=gold reveal=p font=cyrillic'].join('\n'),
   // group, camera, clip, define call transforms, spring and hits, nested and inside defines and loops.
   'transforms.xyt': ['canvas 16:9', 'duration 4', 'fill mix(#1b1f4a, #ffb35c, y)', 'camera cx=1.2 cy=0.5 zoom=1 + 0.3 * ease(p) angle=3 * sin(t)',
     'define bell cx=0.5 cy=0.2 s=1 tint=gold', '  group cx=cx cy=cy flip=cos(t * 3)', '    ellipse cx=cx cy=cy + 0.08 * s rx=0.05 * s ry=0.07 * s color=tint', '    circle cx=cx + 0.02 * s cy=cy + 0.15 * s r=0.015 * s color=brown', '  end', 'end',
@@ -122,6 +124,7 @@ SAME.push(
   ['text reveal=0 draws nothing', 'fill navy', 'use text\nfill navy\ntext "Hello" size=0.2 reveal=0'],
   ['text reveal=1 draws it all', 'use text\ntext "Hello" size=0.2', 'use text\ntext "Hello" size=0.2 reveal=1'],
   ['clip text paints where text draws', 'use text\nfill navy\ntext "XYT" size=0.3 color=red', 'use text\nfill navy\nclip text "XYT" size=0.3\n  fill red\nend'],
+  ['font=cyrillic on Latin text falls back to simplex', 'use text\ntext "Hello" size=0.2', 'use text\ntext "Hello" size=0.2 font=cyrillic'],
   ['text in group scale = bigger text', 'use text\ntext "Ça va" size=0.2 weight=0.1', 'use text\ngroup scale=2\n  text "Ça va" size=0.1 weight=0.1\nend'],
 );
 SAME.push(['curve with a straight control point = line', 'line x1=0.2 y1=0.5 x2=0.8 y2=0.5 width=0.02', 'curve x1=0.2 y1=0.5 cx=0.5 cy=0.5 x2=0.8 y2=0.5 width=0.02']);

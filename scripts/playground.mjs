@@ -17,8 +17,8 @@ export function loadExamples(dir = 'examples') {
 
 export function buildPlayground({ inline = false, hooks = {} } = {}) {
   let html = readFileSync('playground/template.html', 'utf8');
-  // the library and the text plugin, which registers itself
-  const bundle = ['xyt.min.js', 'xyt-text.min.js']
+  // the library, the text plugin and its Cyrillic font, which register themselves
+  const bundle = ['xyt.min.js', 'xyt-text.min.js', 'xyt-text-cyrillic.min.js']
     .map((f) => (inline ? `<script>${readFileSync(`dist/${f}`, 'utf8')}</script>` : `<script src="../dist/${f}"></script>`)).join('\n');
   const examples = JSON.stringify(loadExamples()).replace(/</g, '\\u003c');
   html = html.replace('<!--HOOK:bundle-->', () => bundle).replace('/*HOOK:examples*/[]', () => examples);
@@ -32,5 +32,5 @@ export function buildPlayground({ inline = false, hooks = {} } = {}) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const inline = process.argv.includes('--inline');
   writeFileSync('playground/index.html', buildPlayground({ inline }));
-  console.log('playground/index.html', inline ? '(self-contained)' : '(uses ../dist/xyt.min.js and ../dist/xyt-text.min.js)');
+  console.log('playground/index.html', inline ? '(self-contained)' : '(uses ../dist/xyt.min.js and the text plugin)');
 }

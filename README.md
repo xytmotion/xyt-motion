@@ -18,7 +18,7 @@ That is a complete, looping animation: 120 bytes.
 - **Tiny.** The included 30-second, four-scene cartoon is 11 KB of text. Our ten benchmark animations are 136 to 701 bytes each, 29 to 704 times smaller than the same 4 seconds as H.264 video (plus the library, once per page: see [Benchmarks](#benchmarks)), and they stay sharp at any size.
 - **Written by people and by AI.** Named values (`cx=0.5`), clear error messages with fix suggestions, forgiving aliases, and math that cannot crash. The language reference for models is about 1,000 tokens. In an informal early test, a model given only that reference wrote all ten benchmark animations, and they compiled and rendered as well as the hand-written ones.
 - **Live.** Programs can read the pointer (`mx`, `my`), the beat (`beat`, `pulse`) and inputs your page changes at runtime, which a video file never can.
-- **Small library.** 21 KB gzipped, no dependencies, TypeScript types included, WebGL 1, runs on practically every browser and phone. Text is a 5 KB plugin for pages that need it.
+- **Small library.** 21 KB gzipped, no dependencies, TypeScript types included, WebGL 1, runs on practically every browser and phone. Text is a 6 KB plugin for pages that need it.
 
 Status: early (0.2). The language may still change before 1.0.
 
@@ -77,7 +77,7 @@ npx xyt render film.xyt --sheet                    # 12 frames across the durati
 npx xyt render film.xyt --mp4 --audio song.mp3     # H.264 video with a sound track
 ```
 
-Frames are exactly what a browser shows. Options: `--height`, `--fps`, `--from`/`--to`, `--frames`, `--set name=value` for inputs, `-o` for the output file. A language model writing XYT can use `check` and `--sheet` to read its errors and look at its own frames.
+Frames are exactly what a browser shows. Options: `--height`, `--fps`, `--from`/`--to`, `--frames`, `--set name=value` for inputs, `--font file.svg` to add a stroke font for text, `-o` for the output file. The command line loads the text plugin and its Cyrillic font. A language model writing XYT can use `check` and `--sheet` to read its errors and look at its own frames.
 
 ## The language in two minutes
 
@@ -156,7 +156,20 @@ text "Frère Jacques" x=aspect / 2 y=0.7 size=0.06 color=white
 text "Frère Jacques" x=aspect / 2 y=0.7 size=0.06 color=gold reveal=sp   // the karaoke sweep
 ```
 
-Text is drawn with strokes, like every shape, so it turns, scales, blurs and clips like one. It covers ASCII and accented Latin letters for French, Spanish, Portuguese, German, Serbian and Croatian, Czech and most of Polish. A program can only name a plugin the page loaded (`use text`), never load code. Details: [docs/language.md](docs/language.md#plugins).
+Text is drawn with strokes, like every shape, so it turns, scales, blurs and clips like one. It covers ASCII and accented Latin letters for French, Spanish, Portuguese, German, Serbian and Croatian, Czech and most of Polish. A program can only name a plugin the page loaded (`use text`), never load code.
+
+Other stroke fonts plug in. `text.addFont()` takes a Hershey `.jhf` file, an SVG font (the format of most single-line plotter fonts) or strokes as data. Each letter comes from the first loaded font that has it, and `font=NAME` picks one first for a line. The Russian alphabet comes as an optional 3 KB font, Hershey's serif Cyrillic:
+
+```html
+<script src="https://unpkg.com/xyt-motion/dist/xyt-text-cyrillic.min.js"></script>  <!-- adds itself to text -->
+```
+
+```js
+import cyrillic from 'xyt-motion/text/cyrillic';
+text.addFont(cyrillic);
+```
+
+Details: [docs/language.md](docs/language.md#plugins).
 
 ## API
 
@@ -235,7 +248,7 @@ Run-length encoding the frames instead works well for flat graphics, but on grad
 
 ## Limitations and roadmap
 
-- **Text** covers Latin scripts; no Cyrillic, Greek or other scripts yet. **Curves** are lines (quadratic Bézier); there are no filled free-form shapes.
+- **Text** draws Latin scripts, and Russian with the optional Cyrillic font (serif, unlike the Latin; Serbian Ђ Љ Њ Ћ Џ need a font that has them). Other scripts need a stroke font added with `text.addFont()`. **Curves** are lines (quadratic Bézier); there are no filled free-form shapes.
 - **No memory between frames**: an XYT program is a pure function of x, y and t. Games keep their state in JavaScript and pass it in through inputs.
 - **Sound sync**: planned around `clock` (drive time from an `<audio>` element) plus `bpm` and `offset`. Song structure markers are next.
 - **Export**: `xyt render --mp4` (see [Command line](#command-line)), or `setSize` + `renderAt` + `readPixels` from your own code.

@@ -509,8 +509,6 @@ float sdStar(vec2 p, float r, float k, float n, float deg){ p = rot(p, deg);
         if (!k || k.k !== "str") throw new XytError(line, `${name} needs its words in quotes first, like: ${name} "Hello" x=0.5`);
         c.next();
         str = k.v;
-        const problem = def.check && def.check(str);
-        if (problem) throw new XytError(line, problem);
       }
       return { plugin, def, str, attrs: parseNamed(c, what) };
     };
@@ -1174,12 +1172,12 @@ float sdStar(vec2 p, float r, float k, float n, float deg){ p = rot(p, deg);
         }
         case "clip": {
           const work = this.work;
-          const { v, num } = this.shapeValues(s, sc, CLIP_OPTIONS, `clip ${s.type}`);
-          const own3 = (s.def && s.def.cost ? s.def.cost(s.str) : 1) + this.work - work;
+          const { v, num, fixed } = this.shapeValues(s, sc, CLIP_OPTIONS, `clip ${s.type}`);
+          const own3 = (s.def && s.def.cost ? s.def.cost(s.str, fixed) : 1) + this.work - work;
           this.record(s.line, own3);
           if (!s.body.length) throw E(`this clip ${s.type} is empty; put shapes between it and 'end'`);
           const id = ++this.uid;
-          o.push(`${ind}{ vec3 cs_${id} = col; float cc_${id};`, ...this.coverage(s, v, num, ind + "  "));
+          o.push(`${ind}{ vec3 cs_${id} = col; float cc_${id};`, ...this.coverage(s, v, num, ind + "  ", fixed));
           o.push(`${ind}    cc_${id} = ${v.invert ? `mix(cv, 1.0 - cv, clamp(${num("invert")}, 0.0, 1.0))` : "cv"}; }`);
           o.push(`${ind}  if (cc_${id} > 0.0) {`);
           const cost = this.stmts(s.body, new Scope(sc), ind + "    ");
@@ -1318,13 +1316,23 @@ ${code.join("\n")}
       const allowed = Object.assign({}, s.def ? s.def.values : SHAPES[s.type], options);
       const aliases = Object.assign({}, ALIASES._all, s.def ? s.def.aliases : ALIASES[s.type]);
       const named = s.def && s.def.names || {};
-      const v = {};
+      const fixedNames = s.def && s.def.fixed || {};
+      const v = {}, fixed = {};
       for (const raw of Object.keys(s.attrs)) {
+        if (own2(fixedNames, raw)) {
+          const node2 = s.attrs[raw], choices = fixedNames[raw]();
+          if (node2.t !== "var" || !choices.includes(node2.name)) {
+            throw E(`'${raw}' takes one of: ${choices.join(", ")}.` + (node2.t === "var" ? suggest(node2.name, choices) : ""));
+          }
+          fixed[raw] = node2.name;
+          continue;
+        }
         const name = own2(allowed, raw) ? raw : aliases[raw];
         if (!name || !own2(allowed, name)) {
           const meant = typeof name === "string" ? name : raw;
           const hint = options === CLIP_OPTIONS && (meant === "color" || meant === "alpha") ? " A clip shape is not drawn, so it takes no color or alpha." : "";
-          throw E(`${what} has no '${raw}'.` + suggest(raw, Object.keys(allowed)) + hint + ` It takes: ${Object.keys(allowed).join(", ")}`);
+          const names = Object.keys(allowed).concat(Object.keys(fixedNames));
+          throw E(`${what} has no '${raw}'.` + suggest(raw, names) + hint + ` It takes: ${names.join(", ")}`);
         }
         if (v[name]) throw E(`'${name}' is given twice`);
         let node = s.attrs[raw];
@@ -1339,17 +1347,21 @@ ${code.join("\n")}
         if (name !== "color" && v[name].t === "col") throw E(`'${raw}' must be a number, not a color`);
       }
       const num = (k) => v[k] ? `(${v[k].c})` : fmt(allowed[k]);
-      return { v, num };
+      if (s.def && s.def.check) {
+        const problem = s.def.check(s.str, fixed);
+        if (problem) throw E(problem);
+      }
+      return { v, num, fixed };
     }
     // GLSL that opens a block and sets cv to how much of this pixel the shape covers, 0 to 1.
     // The caller uses cv and closes the block.
-    coverage(s, v, num, ind) {
+    coverage(s, v, num, ind, fixed = {}) {
       const type = s.type;
       const at = (cx, cy) => `PP - vec2(${num(cx)},${num(cy)})`;
       let d;
       if (s.def) d = s.def.distance(s.str, num, (name, code) => {
         if (!this.helpers.has(name)) this.helpers.set(name, code);
-      });
+      }, fixed);
       switch (type) {
         case "circle":
           d = `length(${at("cx", "cy")}) - ${num("r")}`;
@@ -1397,11 +1409,11 @@ ${code.join("\n")}
       return lines;
     }
     shape(s, sc, ind) {
-      const { v, num } = this.shapeValues(s, sc, COMMON, s.type);
+      const { v, num, fixed } = this.shapeValues(s, sc, COMMON, s.type);
       if (!this.inDefine) this.draws++;
       const color = v.color ? asCol(v.color) : "vec3(1.0)";
-      this.out.push(...this.coverage(s, v, num, ind), `${ind}  if (cv > 0.0) col = mix(col, ${color}, cv); }`);
-      return s.def && s.def.cost ? s.def.cost(s.str) : 1;
+      this.out.push(...this.coverage(s, v, num, ind, fixed), `${ind}  if (cv > 0.0) col = mix(col, ${color}, cv); }`);
+      return s.def && s.def.cost ? s.def.cost(s.str, fixed) : 1;
     }
   };
   function compile(source) {
