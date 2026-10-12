@@ -496,7 +496,7 @@ var hash = (s) => {
 function textFunction(str, fontName, add) {
   const chain = chainFor(fontName), chars = [...prepare(str)];
   let x = 0, top = 0, bottom = 0;
-  const parts = [];
+  const letters = /* @__PURE__ */ new Map();
   chars.forEach((ch, i) => {
     const { font, g } = find(ch, chain);
     if (g.segs.length) {
@@ -504,12 +504,18 @@ function textFunction(str, fontName, add) {
       add(fn, `float ${fn}(vec2 p){ float d = 1e4;
 ${g.segs.map(([x0, y0, x1, y1]) => `  d = min(d, sdSeg(p, vec2(${fmt(x0)}, ${fmt(y0)}), vec2(${fmt(x1)}, ${fmt(y1)})));`).join("\n")}
   return d; }`);
-      parts.push(`  { float o = ${fmt(x)} + sp * ${fmt(i)};
-    if (q.x > o - pad && q.x < o + ${fmt(g.w)} + pad && q.y > ${fmt(g.top)} - pad && q.y < ${fmt(g.bottom)} + pad) d = min(d, ${fn}(q - vec2(o, 0.0))); }`);
+      if (!letters.has(fn)) letters.set(fn, { g, mids: [] });
+      letters.get(fn).mids.push(`${fmt(x + g.w / 2)} + sp * ${fmt(i)}`);
       top = Math.min(top, g.top);
       bottom = Math.max(bottom, g.bottom);
     }
     x += g.w;
+  });
+  const parts = [...letters].map(([fn, { g, mids }]) => {
+    const pick = mids.length === 1 ? `float m = ${mids[0]};` : `float m = ${mids[0]}, c;
+${mids.slice(1).map((c) => `    c = ${c}; if (abs(q.x - c) < abs(q.x - m)) m = c;`).join("\n")}`;
+    return `  { ${pick}
+    if (abs(q.x - m) < ${fmt(g.w / 2)} + pad && q.y > ${fmt(g.top)} - pad && q.y < ${fmt(g.bottom)} + pad) d = min(d, ${fn}(q - vec2(m - ${fmt(g.w / 2)}, 0.0))); }`;
   });
   const name = `xt_${hash(`${fontName || ""}|${str}`)}`;
   add(name, `float ${name}(vec2 p, float size, float weight, float align, float reveal, float spacing, float blur){

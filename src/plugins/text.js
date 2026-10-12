@@ -260,22 +260,29 @@ const fmt = (v) => { const r = Math.round(v * 1000) / 1000; return Number.isInte
 // FNV-1a: one GLSL function per distinct text and font
 const hash = (s) => { let h = 0x811c9dc5; for (const c of s) { h ^= c.codePointAt(0); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16); };
 
-// The signed distance to the text in canvas units. Each letter is only measured when the point is
-// within its box; reveal cuts the text from the right, so it can appear left to right.
+// The signed distance to the text in canvas units. GPU compilers copy a function's code into every call,
+// so each distinct letter is called once: at its occurrence nearest the point, and only when the point is
+// within that occurrence's box. reveal cuts the text from the right, so it can appear left to right.
 function textFunction(str, fontName, add) {
   const chain = chainFor(fontName), chars = [...prepare(str)];
   let x = 0, top = 0, bottom = 0;
-  const parts = [];
+  const letters = new Map(); // glyph function name: the glyph and the middle of each occurrence
   chars.forEach((ch, i) => {
     const { font, g } = find(ch, chain);
     if (g.segs.length) {
       const fn = `xg_${fonts.indexOf(font)}_${ch.codePointAt(0)}`;
       add(fn, `float ${fn}(vec2 p){ float d = 1e4;\n${g.segs.map(([x0, y0, x1, y1]) => `  d = min(d, sdSeg(p, vec2(${fmt(x0)}, ${fmt(y0)}), vec2(${fmt(x1)}, ${fmt(y1)})));`).join('\n')}\n  return d; }`);
-      parts.push(`  { float o = ${fmt(x)} + sp * ${fmt(i)};\n    if (q.x > o - pad && q.x < o + ${fmt(g.w)} + pad && q.y > ${fmt(g.top)} - pad && q.y < ${fmt(g.bottom)} + pad) d = min(d, ${fn}(q - vec2(o, 0.0))); }`);
+      if (!letters.has(fn)) letters.set(fn, { g, mids: [] });
+      letters.get(fn).mids.push(`${fmt(x + g.w / 2)} + sp * ${fmt(i)}`);
       top = Math.min(top, g.top);
       bottom = Math.max(bottom, g.bottom);
     }
     x += g.w;
+  });
+  const parts = [...letters].map(([fn, { g, mids }]) => {
+    const pick = mids.length === 1 ? `float m = ${mids[0]};`
+      : `float m = ${mids[0]}, c;\n${mids.slice(1).map((c) => `    c = ${c}; if (abs(q.x - c) < abs(q.x - m)) m = c;`).join('\n')}`;
+    return `  { ${pick}\n    if (abs(q.x - m) < ${fmt(g.w / 2)} + pad && q.y > ${fmt(g.top)} - pad && q.y < ${fmt(g.bottom)} + pad) d = min(d, ${fn}(q - vec2(m - ${fmt(g.w / 2)}, 0.0))); }`;
   });
   const name = `xt_${hash(`${fontName || ''}|${str}`)}`;
   add(name, `float ${name}(vec2 p, float size, float weight, float align, float reveal, float spacing, float blur){
