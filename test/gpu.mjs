@@ -51,7 +51,9 @@ const FEATURES = {
     'clip circle cx=aspect / 2 cy=0.5 r=0.25 invert=0.6 blur=0.05', '  repeat k 4', '    camera zoom=1 + k * 0.1', '    ring r=0.1 + k * 0.05 width=0.01 color=white alpha=hits(t, 0.5, 1.5)', '  end', 'end'].join('\n'),
 };
 
-const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+// SwiftShader draws on the CPU, so long shaders (the karaoke lyrics) take many seconds to compile on CI:
+// without --disable-gpu-watchdog, Chromium stops the GPU process after about 30 seconds and the context is lost.
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-watchdog'] });
 const page = await browser.newPage();
 await page.setContent('<canvas id="c"></canvas>');
 await page.addScriptTag({ content: bundle });
@@ -60,7 +62,10 @@ let failed = 0;
 for (const file of examples.concat(Object.keys(FEATURES))) {
   const src = FEATURES[file] || readFileSync(path.join(root, 'examples', file), 'utf8');
   const res = await page.evaluate(async ({ src, wantImages }) => {
-    const canvas = document.getElementById('c');
+    // a new canvas for each program, so a lost context fails only the program that lost it
+    const canvas = document.createElement('canvas');
+    document.getElementById('c').replaceWith(canvas);
+    canvas.id = 'c';
     const player = new XYT.Player(canvas, { autoplay: false, adaptive: false, pauseWhenHidden: false, preserveDrawingBuffer: true });
     const r = player.load(src);
     if (!r.ok) { player.destroy(); return { ok: false, errors: r.errors }; }
