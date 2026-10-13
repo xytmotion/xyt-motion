@@ -30,8 +30,8 @@ test('fn: a formula with its own values, written once', () => {
   assert.match(firstError('scene 0 1\n fn f(a) = a\nend\ncircle'), /fn must be at the top level/);
   assert.match(firstError('fn f(a) = a * st\ncircle'), /'st' is not available inside fn f/);
   assert.match(firstError('return 1\ncircle'), /return only goes in a fn block/);
-  // noise inside a fn costs at every use
-  assert.equal(compile('fn n(a) = noise(a, 1)\nfill gray(n(x) + n(y))').cost, 5);
+  // a fn costs one shape and its noise at every use
+  assert.equal(compile('fn n(a) = noise(a, 1)\nfill gray(n(x) + n(y))').cost, 7);
 });
 
 test('anchors, name= and attach=: a drawing shows its points to the lines below it', () => {
@@ -62,6 +62,8 @@ test('bounds: pixels outside the circle skip the drawing, and it counts once', (
   assert.match(r.glsl, /if \(length\(PP - vec2\(\(a_cx\), \(\(a_cy - \(0\.15 \* a_s\)\)\)\)\) - abs\(\(\(0\.2 \* a_s\)\)\) > PX\) \{ return col; \}/);
   assert.equal(r.cost, 1 + 8 + 10, 'fill, the eight bounds tests, and one tree');
   assert.equal(r.worstCost, 1 + 8 * 10, 'if all eight trees covered the same pixel');
+  const stacked = compile('define d cx=0.5\n bounds cx=cx cy=0.5 r=10\n' + Array(100).fill(' circle cx=cx').join('\n') + '\nend\nrepeat i 500\n d cx=i\nend');
+  assert.match(stacked.errors[0].message, /if all the drawings with bounds covered the same pixel, it would cost about 50000 shapes, over the limit/, 'the limit holds for the worst case');
   assert.match(firstError('define d cx=0.5\n circle\n group\n  bounds cx=0 cy=0 r=1\n  circle\n end\nend\nd'), /bounds goes directly inside a define/);
   assert.match(firstError('define d cx=0.5\n bounds cx=0.5 cy=0.5\n circle\nend\nd'), /bounds needs cx, cy and r/);
   assert.match(firstError('define d cx=0.5\n bounds cx=0.5 cy=0.5 r=1\n bounds cx=0.5 cy=0.5 r=1\n circle\nend\nd'), /already has bounds/);
@@ -192,4 +194,22 @@ test('fixes found in review: sim steps, starting values, names and errors', () =
   const many = 'duration 3600\nsim s step=0.0001\n' + Array(20).fill(0).map((_, i) => `  state v${i} = 0\n  v${i} += dt`).join('\n') + '\nend\ncircle';
   assert.match(firstError(many), /too long/);
   assert.equal(compile(many.replace('step=0.0001', 'step=0.1')).ok, true, 'a larger step makes it affordable');
+});
+
+test('the cost and simulation limits hold against programs from strangers', () => {
+  const chain = (n) => 'fn f0(x) = sin(x)\n' + Array.from({ length: n }, (_, i) => `fn f${i + 1}(x) = f${i}(x) + f${i}(x + 1)`).join('\n') + '\n';
+  assert.match(firstError(chain(30) + 'fill gray(f30(x))'), /every pixel costs about 2147483648 shapes, over the limit/, 'fns calling fns count all their work');
+  assert.equal(compile(chain(6) + 'fill gray(f6(x))').ok, true, 'a few levels are fine');
+  const t0 = Date.now();
+  assert.match(firstError(chain(40) + 'sim s\n  state v = 0\n  v += f40(t) * dt\nend\ncircle r=s.v'), /would take too long to work out/);
+  assert.match(firstError(chain(40) + 'sim s\n  state v = f40(1)\nend\ncircle r=s.v'), /starting values of sim s would take too long/);
+  assert.match(firstError(chain(40) + 'let k = smooth(f40(t), 1)\ncircle r=k'), /would take too long to work out/);
+  assert.ok(Date.now() - t0 < 2000, 'refused before running');
+  // a named drawing pays for working out its anchors
+  const named = 'define d cx=0.5\n  let k = fbm(cx, 1)\n  anchor a x=k y=0.5\n  circle cx=cx\nend\n';
+  assert.equal(compile(named + 'd name=n').cost - compile(named + 'd').cost, 10, 'the anchors\' fbm');
+  // an hour of 200 values is kept in about 32 MB at most
+  const wide = compile('duration 3600\nsim s step=0.1\n' + Array.from({ length: 200 }, (_, i) => `  state v${i} = ${i}`).join('\n') + '\nend\ncircle r=s.v1');
+  assert.ok(wide.frames.run({}).table.length <= 8e6 + 1000, `${wide.frames.run({}).table.length} numbers kept`);
+  near(values(wide, 1800)['s.v7'], 7, 1e-6, 'still right');
 });

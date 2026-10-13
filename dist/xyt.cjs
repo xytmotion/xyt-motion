@@ -1346,6 +1346,7 @@ function buildCall(node, ctx, build, E) {
 
 // src/frames.js
 var RECORD = 1 / 120;
+var MAX_KEPT = 8e6;
 var FrameValues = class {
   /**
    * @param {object} spec
@@ -1376,7 +1377,7 @@ var FrameValues = class {
   simulate(inputs) {
     const { duration, steppers, exposed } = this.spec;
     const dt = this.spec.step;
-    const per = Math.max(1, Math.round(RECORD / dt));
+    const per = Math.max(1, Math.round(RECORD / dt), Math.ceil(duration / dt * exposed.length / MAX_KEPT));
     const every = dt * per;
     const records = Math.floor(duration / every) + 2;
     const slots = exposed.map((e) => e.track ? -1 : e.slot);
@@ -1597,6 +1598,31 @@ var Compiler = class {
     const e = this.exposed.length - 1;
     return `u_fv[${e >> 2}].${"xyzw"[e & 3]}`;
   }
+  // How much work a formula is on the CPU: its operations, and the bodies of the fns it calls.
+  cpuWork(node) {
+    switch (node.t) {
+      case "neg":
+        return 1 + this.cpuWork(node.a);
+      case "bin":
+        return 1 + this.cpuWork(node.a) + this.cpuWork(node.b);
+      case "call": {
+        let w = 1 + node.args.reduce((s, a) => s + this.cpuWork(a), 0);
+        if (node.fn === "fbm") w += 20;
+        else if (node.fn === "noise") w += 4;
+        const f = this.fns.get(node.fn);
+        if (f) {
+          if (f.cpuWork === void 0) {
+            f.cpuWork = Infinity;
+            f.cpuWork = f.node.body.reduce((s, l) => s + this.cpuWork(l.expr), 0) + this.cpuWork(f.node.ret);
+          }
+          w += f.cpuWork;
+        }
+        return w;
+      }
+      default:
+        return 1;
+    }
+  }
   // A formula as a CPU closure, for values that must be the same for every pixel of a frame.
   cpuExpr(node, sc, line, what) {
     return buildCpu(node, {
@@ -1708,7 +1734,7 @@ var Compiler = class {
         F.v[pos] = goal + (c1 + c2 * dt) * e;
         F.v[vel] = (c2 - w * (c1 + c2 * dt)) * e;
       },
-      work: 6
+      work: 6 + this.cpuWork(args[0]) + this.cpuWork(args[1])
     });
     const c = this.expose({ slot: pos, name: "smooth", line });
     return { c, cpu: (F) => F.v[pos] };
@@ -1953,7 +1979,7 @@ var Compiler = class {
     const args = n.args.map((a) => this.ex(a, sc, line));
     const spec = this.fnSpec(f, args.map((a) => a.t), line);
     if (spec.failed) throw E(`${n.fn}() can't be used because its fn has a problem`);
-    this.work += spec.work;
+    this.work += 1 + spec.work;
     this.noteUse(spec.fname);
     return { c: `${spec.fname}(${args.map((a) => a.c).join(",")})`, t: spec.t };
   }
@@ -2239,7 +2265,10 @@ ${body.out.join("\n")}
       tid = ++this.uid;
       o.push(`${ind}${this.save(id)}`, ...this.applyTransform(t, ind, tid), `${ind}${call}`, `${ind}${this.restore(id)}`);
     } else o.push(`${ind}${call}`);
-    if (instance) this.nameInstance(instance, d, args, tid, sc, ind, s.line);
+    if (instance) {
+      this.nameInstance(instance, d, args, tid, sc, ind, s.line);
+      this.work += d.pwork || 0;
+    }
     this.draws++;
     if (!this.inDefine && this.mult > 1 && d.cost * this.mult >= LIMITS.warnLine) {
       this.warnings.push({ line: s.line, message: `${s.name} costs about ${d.cost} shapes and repeat draws it ${this.mult} times, so this line alone costs about ${d.cost * this.mult} per pixel` });
@@ -2331,6 +2360,7 @@ ${body.out.join("\n")}
 ${b.out.join("\n")}
 }`, b.deps);
     d.pfn = pname;
+    d.pwork = b.work;
     return pname;
   }
   anchorStmts(list, sc, ind, xf, d, outerCam = null) {
@@ -2431,7 +2461,7 @@ ${b.out.join("\n")}
     const scope = new Scope(this.root);
     scope.vars.set("dt", { c: null, t: "num", cpu: (F) => F.dt });
     const states = /* @__PURE__ */ new Map(), inits = [];
-    let work = 0;
+    let work = 0, initWork = 0;
     const compileList = (list, sc, top = false) => {
       const out = [];
       for (const st of list) {
@@ -2442,6 +2472,7 @@ ${b.out.join("\n")}
               this.checkSimName(st.name, st.line, "state");
               if (states.has(st.name)) throw this.error(st.line, `state '${st.name}' is declared twice`);
               const slot = this.slot(), init = build(st.expr);
+              initWork += this.cpuWork(st.expr);
               states.set(st.name, slot);
               sc.vars.set(st.name, { c: null, t: "num", cpu: (F) => F.v[slot] });
               inits.push((F) => {
@@ -2459,7 +2490,7 @@ ${b.out.join("\n")}
               if (top) inits.push((F) => {
                 F.v[slot] = f(F);
               });
-              work++;
+              work += this.cpuWork(st.expr);
               break;
             }
             case "set": {
@@ -2487,7 +2518,7 @@ ${b.out.join("\n")}
                 }
               }[st.op];
               out.push(op);
-              work++;
+              work += this.cpuWork(st.expr);
               break;
             }
             case "if": {
@@ -2497,7 +2528,7 @@ ${b.out.join("\n")}
                 const list2 = cond(F) !== 0 ? a : b;
                 for (let i = 0; i < list2.length; i++) list2[i](F);
               });
-              work++;
+              work += this.cpuWork(st.cond);
               break;
             }
           }
@@ -2517,6 +2548,7 @@ ${b.out.join("\n")}
       this.inSim = null;
     }
     if (!states.size && this.errors.length === errors) throw this.error(s.line, `sim ${s.name} has no state; give it one, like: state y = 0.2`);
+    if (initWork > LIMITS.simWork / 100) throw this.error(s.line, `the starting values of sim ${s.name} would take too long to work out`);
     this.steppers.push({
       init: (F) => {
         for (const f of inits) f(F);
@@ -2593,7 +2625,7 @@ ${b.out.join("\n")}
 ${b.out.join("\n")}
   return col;
 }`, b.deps);
-    this.defs.set(s.name, { name: s.name, fname, params, cost, anchors: s.anchors || [], bounded: !!s.bounded, node: s, pfn: null });
+    this.defs.set(s.name, { name: s.name, fname, params, cost, anchors: s.anchors || [], bounded: !!s.bounded, node: s, pfn: null, pwork: 0 });
     if (!s.body.length) throw E(`define ${s.name} is empty; put shapes between it and 'end'`);
     return 0;
   }
@@ -2824,7 +2856,9 @@ function compile(source, options = {}) {
     warnings.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes (noise and fbm count as several); this may be slow on phones. Heaviest: ${heaviest}` });
   }
   if (cost > LIMITS.cost) {
-    errors.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes, over the limit of ${LIMITS.cost}; use smaller repeat counts or less noise and fbm inside repeat, or give big drawings bounds. Heaviest: ${heaviest}` });
+    errors.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes, over the limit of ${LIMITS.cost}; use smaller repeat counts or less noise and fbm inside repeat. Heaviest: ${heaviest}` });
+  } else if (worst > LIMITS.cost) {
+    errors.push({ line: 0, message: `if all the drawings with bounds covered the same pixel, it would cost about ${worst} shapes, over the limit of ${LIMITS.cost}; draw fewer of them or make them simpler. Heaviest: ${heaviest}` });
   }
   let frames = null;
   if (c.exposed.length) {
@@ -2832,7 +2866,7 @@ function compile(source, options = {}) {
     if (c.hasSmooth) step = Math.min(step, SIM_STEP);
     const work = c.steppers.reduce((s, x) => s + x.work, 0) * program.duration / step;
     if (work > LIMITS.simWork) {
-      errors.push({ line: 0, message: `the sims and smooth() values would take too long to work out (${Math.round(work / 1e6)} million steps); use a larger sim step, fewer of them or a shorter duration` });
+      errors.push({ line: 0, message: `the sims and smooth() values would take too long to work out (about ${Math.round(work / 1e6)} million operations); use a larger sim step, simpler formulas, fewer of them or a shorter duration` });
     }
     frames = new FrameValues({
       duration: program.duration,

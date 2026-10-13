@@ -6,6 +6,8 @@ import { sampleTrack } from './cpu.js';
 
 /** About how often the values are kept, in seconds. Frames in between are interpolated. */
 export const RECORD = 1 / 120;
+/** The most numbers a program keeps (32 MB): an hour of 256 values is kept about every 0.1 s. */
+export const MAX_KEPT = 8e6;
 
 export class FrameValues {
   /**
@@ -39,7 +41,8 @@ export class FrameValues {
     const { duration, steppers, exposed } = this.spec;
     // steps of exactly the sims' step, kept every few steps (about RECORD apart, or every step when steps are longer)
     const dt = this.spec.step;
-    const per = Math.max(1, Math.round(RECORD / dt));
+    // no more than MAX_KEPT numbers kept: long programs with many values keep them less often
+    const per = Math.max(1, Math.round(RECORD / dt), Math.ceil(duration / dt * exposed.length / MAX_KEPT));
     const every = dt * per;
     const records = Math.floor(duration / every) + 2;
     const slots = exposed.map((e) => (e.track ? -1 : e.slot));
