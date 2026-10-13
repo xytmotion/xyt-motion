@@ -303,7 +303,7 @@ The compiler reports every problem it can find at once, each with a line number,
 
 ## Limits
 
-- `repeat` counts up to 500. The cost per pixel (`cost` in the compile result) is capped at 2,000 shapes, with `noise` counting as 2 (4 with three values) and `fbm` as 10 (20); `compile` warns above 400. `costs` lists which lines the cost comes from, and `compile` warns when `repeat` multiplies a define's cost past 100. Drawings with `bounds` count once.
+- `repeat` counts up to 500. The cost per pixel (`cost` in the compile result) is capped at 2,000 shapes (20,000 for local files rendered with `xyt render`, or with `compile(src, { maxCost })`), with `noise` counting as 2 (4 with three values), `fbm` as 10 (20), and a `fn` as 1 plus its body at every use; `compile` warns above 400. `costs` lists which lines the cost comes from, and `compile` warns when `repeat` multiplies a define's cost past 100. Drawings with `bounds` count once.
 - No images, and no filled free-form shapes (curves are lines); text comes from the text plugin.
 - A program has no memory between frames: it is a pure function of position, time and inputs. Sims and `smooth()` have memory within one run of the animation, worked out before it plays, so their values too depend only on the time and inputs. Up to 256 sim states, tracks and smooth values, and simulating them must stay under about 40 million steps.
 - Long programs with many scenes become one shader per stretch of time with the same scenes, built when first needed: a 4-minute film draws like a short one.

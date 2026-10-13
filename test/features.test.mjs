@@ -213,3 +213,11 @@ test('the cost and simulation limits hold against programs from strangers', () =
   assert.ok(wide.frames.run({}).table.length <= 8e6 + 1000, `${wide.frames.run({}).table.length} numbers kept`);
   near(values(wide, 1800)['s.v7'], 7, 1e-6, 'still right');
 });
+
+test('maxCost: programs from anywhere keep the default limit; trusted local files may be heavier', () => {
+  const heavy = 'fill gray(' + Array(300).fill('fbm(x, y)').join(' + ') + ')';
+  assert.match(firstError(heavy), /every pixel costs about 3001 shapes, over the limit of 2000/);
+  assert.equal(compile(heavy, { maxCost: 20000 }).ok, true, 'the command line renders it');
+  const huge = 'fill gray(' + Array(2100).fill('fbm(x, y)').join(' + ') + ')';
+  assert.match(compile(huge, { maxCost: 1e9 }).errors[0].message, /over the limit of 20000/, 'no caller can lift it past the offline limit');
+});

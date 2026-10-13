@@ -114,7 +114,8 @@ const fonts = (opt.font || []).map((f) => {
   try { text.addFont(font); } catch (e) { fail(`could not use the font ${f}: ${e.message}`); }
   return font;
 });
-const result = compile(source);
+// local files rendered offline may be heavier than programs from anywhere
+const result = compile(source, { maxCost: 20000 });
 const where = (m) => (m.line ? `${file}:${m.line}: ` : `${file}: `);
 for (const e of result.errors) process.stderr.write(`${where(e)}error: ${e.message}\n`);
 for (const w of result.warnings) process.stderr.write(`${where(w)}warning: ${w.message}\n`);
@@ -310,6 +311,7 @@ async function preparePage(browser) {
 function setUpPage({ source, inputs }) {
   const player = new XYT.Player(document.getElementById('c'), {
     autoplay: false, adaptive: false, pauseWhenHidden: false, pointer: false, fitAspect: false, reducedMotion: 'play', inputs,
+    maxCost: 20000,
   });
   const r = player.load(source);
   if (!r.ok) throw new Error(r.errors.map((e) => `line ${e.line}: ${e.message}`).join('\n'));

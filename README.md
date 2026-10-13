@@ -263,7 +263,7 @@ Source is parsed line by line, every value is type-checked as a number or a colo
 
 Sims, `smooth()` and tracks are worked out on the CPU before the first frame, over the whole duration, and each frame hands their values at its time to the shader. Long programs with many scenes become one shader per stretch of time, so each holds only what plays then.
 
-Every pixel evaluates every active shape each frame, except drawings whose `bounds` it is outside, so cost grows with shapes × pixels. `compile` reports this as `cost`; the busiest example, the 30-second cartoon, is about 107. Programs above 400 get a warning, and above 2,000 an error.
+Every pixel evaluates every active shape each frame, except drawings whose `bounds` it is outside, so cost grows with shapes × pixels. `compile` reports this as `cost`; the busiest example, the 30-second cartoon, is about 107. Programs above 400 get a warning, and above 2,000 an error (20,000 for local files rendered from the command line, which works offline).
 
 ## Benchmarks
 

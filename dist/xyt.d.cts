@@ -66,6 +66,8 @@ export interface CompileResult {
 export interface CompileOptions {
   /** One shader per stretch of time between scene changes: always (true), never (false), or for large programs ('auto', the default). */
   split?: boolean | 'auto';
+  /** The cost limit, for programs you trust (rendered from local files, offline). Default 2000, at most 20000. */
+  maxCost?: number;
 }
 
 /** Compile XYT source to a GLSL fragment shader. Never throws for problems in the source. */
@@ -131,6 +133,8 @@ export interface PlayerOptions {
   inputs?: Record<string, number | Color>;
   /** One shader per stretch of time with the same scenes; see CompileOptions. Default 'auto'. */
   split?: boolean | 'auto';
+  /** The cost limit, for programs you trust; see CompileOptions. Default 2000. */
+  maxCost?: number;
 }
 
 export class Player {

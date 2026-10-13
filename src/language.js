@@ -84,10 +84,13 @@ export const ASPECT_NAMES = { square: 1, wide: 16 / 9, landscape: 16 / 9, tall: 
 
 /**
  * Hard limits that keep shaders compilable on phones. cost counts shapes per pixel; a program
- * far past the limit can stall the GPU long enough for the browser to drop the context.
+ * far past the limit can stall the GPU long enough for the browser to drop the context. That is the
+ * default, for programs from anywhere. offlineCost is for programs rendered from local files (the
+ * command line passes it as maxCost): films reach a few thousand (measured: a ray-marched city of
+ * 3,844 drew a 1080p frame in 0.14 s on a laptop GPU).
  */
 export const LIMITS = {
-  repeat: 500, cost: 2000, warnCost: 400, warnLine: 100, nameLength: 64,
+  repeat: 500, cost: 2000, offlineCost: 20000, warnCost: 400, warnLine: 100, nameLength: 64,
   // per-frame values (sim states, tracks, smooth) and the work of simulating them before the first frame
   frameValues: 256, simWork: 40e6,
 };

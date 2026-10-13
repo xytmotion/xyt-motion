@@ -79,7 +79,7 @@ export class Player {
 
   /** Compile and show a program. On errors the previous program keeps running. Returns the compile result. */
   load(source) {
-    const result = compile(source, { split: this.options.split });
+    const result = compile(source, { split: this.options.split, maxCost: this.options.maxCost });
     if (!result.ok) { this._emit('error', result.errors); return result; }
     const gpuError = this._build(result);
     if (gpuError) {

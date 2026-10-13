@@ -1214,6 +1214,8 @@ function closure(funcs, roots) {
  * Never throws for problems in the source: they come back in `errors`, each with a line number.
  * options.split: true to always give one shader per stretch of time between scene changes (parts),
  * false never, 'auto' (default) when the program is large.
+ * options.maxCost: the cost limit, for callers that trust the program (default LIMITS.cost, at most
+ * LIMITS.offlineCost); the command line raises it, since it renders local files offline.
  */
 export function compile(source, options = {}) {
   const program = parse(source);
@@ -1259,6 +1261,8 @@ export function compile(source, options = {}) {
   if (!program.errors.length) cost = c.stmts(program.body, main, '  ');
 
   const errors = c.errors.sort((a, b) => a.line - b.line).map((e) => ({ line: e.line, message: e.message }));
+  // the limit is for programs from anywhere; a caller that trusts the program (rendering local files) may raise it
+  const maxCost = Math.max(1, Math.min(Number(options.maxCost) || LIMITS.cost, LIMITS.offlineCost));
   if (!errors.length && c.draws === 0) {
     errors.push({ line: 1, message: 'nothing to draw yet: add a fill or a shape' });
   }
@@ -1273,11 +1277,11 @@ export function compile(source, options = {}) {
   if (cost > LIMITS.warnCost) {
     warnings.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes (noise and fbm count as several); this may be slow on phones. Heaviest: ${heaviest}` });
   }
-  if (cost > LIMITS.cost) {
-    errors.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes, over the limit of ${LIMITS.cost}; use smaller repeat counts or less noise and fbm inside repeat. Heaviest: ${heaviest}` });
-  } else if (worst > LIMITS.cost) {
+  if (cost > maxCost) {
+    errors.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes, over the limit of ${maxCost}; use smaller repeat counts or less noise and fbm inside repeat. Heaviest: ${heaviest}` });
+  } else if (worst > maxCost) {
     // bounds make drawing faster, but a program could put every bounded drawing on the same pixel
-    errors.push({ line: 0, message: `if all the drawings with bounds covered the same pixel, it would cost about ${worst} shapes, over the limit of ${LIMITS.cost}; draw fewer of them or make them simpler. Heaviest: ${heaviest}` });
+    errors.push({ line: 0, message: `if all the drawings with bounds covered the same pixel, it would cost about ${worst} shapes, over the limit of ${maxCost}; draw fewer of them or make them simpler. Heaviest: ${heaviest}` });
   }
 
   // per-frame values: the simulation has to stay affordable before the first frame

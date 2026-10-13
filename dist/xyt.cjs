@@ -169,6 +169,7 @@ var ASPECT_NAMES = { square: 1, wide: 16 / 9, landscape: 16 / 9, tall: 9 / 16, p
 var LIMITS = {
   repeat: 500,
   cost: 2e3,
+  offlineCost: 2e4,
   warnCost: 400,
   warnLine: 100,
   nameLength: 64,
@@ -2844,6 +2845,7 @@ function compile(source, options = {}) {
   c.deps = topDeps;
   if (!program.errors.length) cost = c.stmts(program.body, main, "  ");
   const errors = c.errors.sort((a, b) => a.line - b.line).map((e) => ({ line: e.line, message: e.message }));
+  const maxCost = Math.max(1, Math.min(Number(options.maxCost) || LIMITS.cost, LIMITS.offlineCost));
   if (!errors.length && c.draws === 0) {
     errors.push({ line: 1, message: "nothing to draw yet: add a fill or a shape" });
   }
@@ -2855,10 +2857,10 @@ function compile(source, options = {}) {
   if (cost > LIMITS.warnCost) {
     warnings.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes (noise and fbm count as several); this may be slow on phones. Heaviest: ${heaviest}` });
   }
-  if (cost > LIMITS.cost) {
-    errors.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes, over the limit of ${LIMITS.cost}; use smaller repeat counts or less noise and fbm inside repeat. Heaviest: ${heaviest}` });
-  } else if (worst > LIMITS.cost) {
-    errors.push({ line: 0, message: `if all the drawings with bounds covered the same pixel, it would cost about ${worst} shapes, over the limit of ${LIMITS.cost}; draw fewer of them or make them simpler. Heaviest: ${heaviest}` });
+  if (cost > maxCost) {
+    errors.push({ line: 0, message: `every pixel costs about ${Math.round(cost)} shapes, over the limit of ${maxCost}; use smaller repeat counts or less noise and fbm inside repeat. Heaviest: ${heaviest}` });
+  } else if (worst > maxCost) {
+    errors.push({ line: 0, message: `if all the drawings with bounds covered the same pixel, it would cost about ${worst} shapes, over the limit of ${maxCost}; draw fewer of them or make them simpler. Heaviest: ${heaviest}` });
   }
   let frames = null;
   if (c.exposed.length) {
@@ -3036,7 +3038,7 @@ var Player = class {
   /** Compile and show a program. On errors the previous program keeps running. Returns the compile result. */
   load(source) {
     var _a;
-    const result = compile(source, { split: this.options.split });
+    const result = compile(source, { split: this.options.split, maxCost: this.options.maxCost });
     if (!result.ok) {
       this._emit("error", result.errors);
       return result;
