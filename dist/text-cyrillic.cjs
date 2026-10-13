@@ -1,4 +1,4 @@
-/*! xyt-motion Cyrillic font 0.3.0 | MIT */
+/*! xyt-motion Cyrillic font 0.4.0 | MIT */
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;

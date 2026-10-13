@@ -54,7 +54,7 @@ export const BUILTINS = {
  * by angle (degrees, clockwise), scales and mirrors (flip=-1) around cx, cy, then moves by dx, dy.
  * cx defaults to the canvas center (null here, since it depends on the canvas shape).
  */
-export const TRANSFORM = { cx: null, cy: 0.5, angle: 0, scale: 1, flip: 1, dx: 0, dy: 0 };
+export const TRANSFORM = { cx: null, cy: 0.5, angle: 0, scale: 1, flip: 1, dx: 0, dy: 0, shake: 0 };
 export const TRANSFORM_ALIASES = { x: 'cx', y: 'cy', rotation: 'angle', rotate: 'angle', zoom: 'scale', mirror: 'flip' };
 
 /** Options of a clip shape: it is not drawn, so it takes no color or alpha. invert=1 draws outside it. */
@@ -65,8 +65,20 @@ export const SCENE_VALUES = ['st', 'sp', 'sb'];
 
 export const COMMANDS = ['xyt', 'use', 'canvas', 'duration', 'bpm', 'input', 'let', 'fill', 'repeat', 'scene', 'define', 'group', 'camera', 'clip', 'end'];
 
+/**
+ * Commands added in 0.4. They start lines, but programs may still use them as names for values
+ * (`let track = ...` was common before they existed), so they are not reserved like COMMANDS.
+ * The second list only works inside a block: fn (return), define (anchor, bounds), sim (state, if, else).
+ */
+export const LATER_COMMANDS = ['fn', 'sim', 'cue', 'track'];
+export const BLOCK_COMMANDS = { return: 'fn', anchor: 'define', bounds: 'define', state: 'sim', if: 'sim', else: 'sim' };
+
+/** The values of an anchor (a named point a define shows to the lines below its use) and of bounds. */
+export const ANCHOR = { x: 0.5, y: 0.5, angle: 0 };
+export const BOUNDS = { cx: 0.5, cy: 0.5, r: 0.5 };
+
 /** The language version this library speaks. Programs may declare theirs with `xyt 0.3`. */
-export const LANGUAGE_VERSION = '0.3';
+export const LANGUAGE_VERSION = '0.4';
 
 export const ASPECT_NAMES = { square: 1, wide: 16 / 9, landscape: 16 / 9, tall: 9 / 16, portrait: 9 / 16, cinema: 2.39 };
 
@@ -74,7 +86,11 @@ export const ASPECT_NAMES = { square: 1, wide: 16 / 9, landscape: 16 / 9, tall: 
  * Hard limits that keep shaders compilable on phones. cost counts shapes per pixel; a program
  * far past the limit can stall the GPU long enough for the browser to drop the context.
  */
-export const LIMITS = { repeat: 500, cost: 2000, warnCost: 400, warnLine: 100, nameLength: 64 };
+export const LIMITS = {
+  repeat: 500, cost: 2000, warnCost: 400, warnLine: 100, nameLength: 64,
+  // per-frame values (sim states, tracks, smooth) and the work of simulating them before the first frame
+  frameValues: 256, simWork: 40e6,
+};
 
 /** Functions that cost about as much as several shapes, keyed by name and argument count. */
 export const FUNCTION_COST = { noise: [2, 2, 4], fbm: [10, 10, 20] };

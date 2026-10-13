@@ -1,4 +1,4 @@
-/*! xyt-motion text plugin 0.3.0 | MIT */
+/*! xyt-motion text plugin 0.4.0 | MIT */
 
 // src/plugins/text-font.js
 var HERSHEY = [

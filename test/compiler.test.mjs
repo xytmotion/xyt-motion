@@ -201,9 +201,10 @@ test('xyt declares the language version', () => {
   assert.equal(compile('xyt 0.1 // older programs still run\nfill red').ok, true);
   assert.equal(parse('xyt 0.2\nfill red').version, '0.2');
   assert.equal(compile('xyt 0.3\nfill red').ok, true);
-  assert.match(firstError('xyt 0.4\nfill red'), /written for XYT 0\.4, newer than this library/);
+  assert.equal(compile('xyt 0.4\nfill red').ok, true);
+  assert.match(firstError('xyt 0.5\nfill red'), /written for XYT 0\.5, newer than this library/);
   assert.match(firstError('xyt 1.0\nfill red'), /newer than this library/);
-  assert.match(firstError('xyt two\nfill red'), /like: xyt 0\.3/);
+  assert.match(firstError('xyt two\nfill red'), /like: xyt 0\.4/);
 });
 
 test('cost counts noise and fbm as several shapes, and stops runaway programs', () => {
@@ -224,7 +225,8 @@ test('the exported version matches package.json', () => {
 test('group: turn, scale, mirror and move what is inside', () => {
   const r = compile('group cx=0.9 cy=0.1 angle=20 * sin(t) scale=0.8 flip=-1 dx=0.01 dy=0\n  rect cx=0.9 cy=0.2 color=mix(red, gold, y)\nend');
   assert.equal(r.ok, true, JSON.stringify(r.errors));
-  assert.match(r.glsl, /PP = rot\(PP - c - vec2\(\(0\.01\), \(0\.0\)\), \(\(20\.0 \* sin\(T\)\)\)\) \/ s;/);
+  assert.match(r.glsl, /float ta_(\d+) = \(\(20\.0 \* sin\(T\)\)\); vec2 td_\1 = vec2\(\(0\.01\), \(0\.0\)\);/);
+  assert.match(r.glsl, /PP = rot\(PP - tc_(\d+) - td_\1, ta_\1\) \/ ts_\1;/);
   assert.equal(compile('group x=0.5 y=0.5 rotation=10 zoom=2 mirror=-1\n circle\nend').ok, true, 'aliases');
   assert.equal(compile('group\n circle\nend').ok, true, 'all values are optional');
   assert.match(firstError('group angel=10\n circle\nend'), /group has no 'angel'.*Did you mean 'angle'/);
@@ -264,10 +266,10 @@ test('a define call can turn, scale, mirror and move its drawing', () => {
   const src = 'define bell cx=0.5 cy=0.2 s=1\n  circle cx=cx cy=cy + 0.1 * s r=0.05 * s\nend\n';
   const r = compile(src + 'bell cx=0.3 angle=30 * spring(t - 1) scale=2 flip=-1 dx=0.1 dy=0');
   assert.equal(r.ok, true, JSON.stringify(r.errors));
-  assert.match(r.glsl, /vec2 c = vec2\(\(0\.3\), \(0\.2\)\)/, 'turns around its own cx, cy');
-  assert.match(compile('define dot k=1\n  circle\nend\ndot angle=10').glsl, /vec2 c = vec2\(\(ASPECT\*0\.5\), 0\.5\)/, 'or the canvas center');
+  assert.match(r.glsl, /vec2 tc_\d+ = vec2\(\(0\.3\), \(0\.2\)\)/, 'turns around its own cx, cy');
+  assert.match(compile('define dot k=1\n  circle\nend\ndot angle=10').glsl, /vec2 tc_\d+ = vec2\(\(ASPECT\*0\.5\), 0\.5\)/, 'or the canvas center');
   assert.match(compile('define dial angle=0\n  line x2=0.5 + 0.3 * cos(angle) y2=0.5\nend\ndial angle=1').glsl, /f_dial\(col, 1\.0\)/, "the define's own value wins");
-  assert.match(firstError(src + 'bell size=2'), /bell has no 'size'.*and angle, scale, flip, dx, dy to turn/);
+  assert.match(firstError(src + 'bell size=2'), /bell has no 'size'.*angle, scale, flip, dx, dy to turn/);
 });
 
 test('spring and hits', () => {

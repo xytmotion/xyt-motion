@@ -34,6 +34,7 @@ export class Player {
    * @param {boolean} [options.fitAspect=true] set the canvas CSS aspect ratio to the program's canvas shape
    * @param {boolean} [options.preserveDrawingBuffer=false]
    * @param {object} [options.inputs] initial values for the program's inputs
+   * @param {boolean|'auto'} [options.split='auto'] one shader per stretch of time with the same scenes (see compile)
    */
   constructor(canvas, options = {}) {
     if (!canvas || typeof canvas.getContext !== 'function') throw new TypeError('Player needs a <canvas> element');
@@ -41,7 +42,7 @@ export class Player {
     this.options = Object.assign({
       autoplay: true, loop: true, clock: null, reducedMotion: 'still', still: false, poster: null, adaptive: true,
       pauseWhenHidden: true, pointer: true, maxPixelRatio: 2, maxPixels: 1920 * 1080 * 2, fitAspect: true,
-      preserveDrawingBuffer: false, inputs: {},
+      preserveDrawingBuffer: false, inputs: {}, split: 'auto',
     }, options);
     this.result = null;
     this.fps = 0;
@@ -58,6 +59,8 @@ export class Player {
     this._fixed = null;
     this._listeners = {};
     this._cleanup = [];
+    this._progs = []; // one compiled shader per part of the program (one part when it isn't split)
+    this._fv = null; // the per-frame values (sims, smooth, tracks), worked out for the current inputs
     this._tick = this._tick.bind(this);
 
     this._initGL();
@@ -76,7 +79,7 @@ export class Player {
 
   /** Compile and show a program. On errors the previous program keeps running. Returns the compile result. */
   load(source) {
-    const result = compile(source);
+    const result = compile(source, { split: this.options.split });
     if (!result.ok) { this._emit('error', result.errors); return result; }
     const gpuError = this._build(result);
     if (gpuError) {
@@ -91,6 +94,7 @@ export class Player {
     }
     const first = !this.result;
     this.result = result;
+    this._fv = result.frames ? result.frames.run(this._inputs) : null;
     if (first && this._still && !this._playing) {
       this._time = Math.min(Math.max(0, this.options.poster ?? result.duration * 0.3), result.duration);
     } else if (this._time > result.duration) this._time %= result.duration;
@@ -133,6 +137,8 @@ export class Player {
   set(name, value) {
     const inp = this.result && this.result.inputs.find((i) => i.name === name);
     this._inputs[name] = inp ? toInputValue(value, inp.kind) : value;
+    // sims that read inputs are worked out again
+    if (this.result && this.result.frames && this.result.frames.usesInputs) this._fv = this.result.frames.run(this._inputs);
     this._requestDraw();
     return this;
   }
@@ -207,11 +213,11 @@ export class Player {
     // (for example when <xyt-player> is moved in the page).
     const gl = this.gl;
     if (gl && !gl.isContextLost()) {
-      if (this._prog) gl.deleteProgram(this._prog);
+      for (const p of this._progs) if (p) gl.deleteProgram(p.prog);
       if (this._vs) gl.deleteShader(this._vs);
       if (this._buf) gl.deleteBuffer(this._buf);
     }
-    this._prog = null;
+    this._progs = [];
     this.result = null;
     this._listeners = {};
   }
@@ -232,7 +238,7 @@ export class Player {
     gl.bindBuffer(gl.ARRAY_BUFFER, this._buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     this._vs = this._shader(gl.VERTEX_SHADER, VERTEX);
-    this._prog = null;
+    this._progs = [];
   }
 
   _shader(type, src) {
@@ -247,21 +253,40 @@ export class Player {
     return s;
   }
 
+  // Checks a new program on the GPU by building the shader it needs now; a split program's other
+  // parts are built when they are first needed. Returns an error message, or null.
   _build(result) {
+    const old = this._progs;
+    this._progs = (result.parts || [null]).map(() => null);
+    const error = this._buildPart(this._partAt(result, this._time), result);
+    if (error) { this._progs = old; return error; }
+    const gl = this.gl;
+    if (!gl.isContextLost()) for (const p of old) if (p) gl.deleteProgram(p.prog);
+    return null;
+  }
+
+  _partAt(result, t) {
+    const parts = result.parts;
+    if (!parts) return 0;
+    let i = 0;
+    while (i + 1 < parts.length && t >= parts[i + 1].start) i++;
+    return i;
+  }
+
+  _buildPart(i, result) {
     const gl = this.gl;
     try {
-      const fs = this._shader(gl.FRAGMENT_SHADER, result.glsl);
+      const fs = this._shader(gl.FRAGMENT_SHADER, result.parts ? result.parts[i].glsl : result.glsl);
       const p = gl.createProgram();
       gl.attachShader(p, this._vs);
       gl.attachShader(p, fs);
       gl.linkProgram(p);
       gl.deleteShader(fs);
       if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getProgramInfoLog(p) || 'link failed');
-      if (this._prog) gl.deleteProgram(this._prog);
-      this._prog = p;
       const u = (n) => gl.getUniformLocation(p, n);
-      this._loc = { a: gl.getAttribLocation(p, 'a'), res: u('u_res'), t: u('u_t'), dur: u('u_dur'), mouse: u('u_mouse'), inputs: {} };
-      for (const inp of result.inputs) this._loc.inputs[inp.name] = { loc: u('u_in_' + glslName(inp.name)), kind: inp.kind };
+      const loc = { a: gl.getAttribLocation(p, 'a'), res: u('u_res'), t: u('u_t'), dur: u('u_dur'), mouse: u('u_mouse'), fv: u('u_fv'), inputs: {} };
+      for (const inp of result.inputs) loc.inputs[inp.name] = { loc: u('u_in_' + glslName(inp.name)), kind: inp.kind };
+      this._progs[i] = { prog: p, loc };
       return null;
     } catch (e) {
       return String(e.message || e).slice(0, 400);
@@ -269,10 +294,15 @@ export class Player {
   }
 
   _draw(t) {
-    if (!this._prog || !this.result || this.gl.isContextLost()) return;
-    const gl = this.gl, L = this._loc, w = this.canvas.width, h = this.canvas.height;
+    if (!this.result || this.gl.isContextLost()) return;
+    const i = this._partAt(this.result, t);
+    if (!this._progs[i]) {
+      const error = this._buildPart(i, this.result);
+      if (error) { this._emit('error', [{ line: 0, message: 'The GPU rejected the compiled shader: ' + error }]); return; }
+    }
+    const gl = this.gl, { prog, loc: L } = this._progs[i], w = this.canvas.width, h = this.canvas.height;
     gl.viewport(0, 0, w, h);
-    gl.useProgram(this._prog);
+    gl.useProgram(prog);
     gl.bindBuffer(gl.ARRAY_BUFFER, this._buf);
     gl.enableVertexAttribArray(L.a);
     gl.vertexAttribPointer(L.a, 2, gl.FLOAT, false, 0, 0);
@@ -285,6 +315,7 @@ export class Player {
       const v = this._inputs[name];
       if (kind === 'col') gl.uniform3f(loc, v[0], v[1], v[2]); else gl.uniform1f(loc, v);
     }
+    if (this._fv && L.fv) gl.uniform4fv(L.fv, this._fv.at(t));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     this._emit('frame', t);
   }
@@ -371,7 +402,7 @@ export class Player {
     add(c, 'webglcontextlost', (e) => { e.preventDefault(); });
     add(c, 'webglcontextrestored', () => {
       this._initGL();
-      if (this.result) this._build(this.result);
+      if (this.result) this._progs = (this.result.parts || [null]).map(() => null); // built again as they are needed
       this._requestDraw();
     });
     if (typeof ResizeObserver === 'function') {

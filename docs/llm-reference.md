@@ -16,6 +16,7 @@ canvas 16:9                        // or canvas 9:16, canvas 1:1 (default). Then
 duration 8                         // or in bars: duration bars 16
 bpm 120 offset=0 bar=4             // tempo for beat and pulse; offset = seconds before the first beat; bar = beats per bar
 input wind = 0.5 min=0 max=1       // a value the host page can change live (number or color)
+cue drop 32.5                      // a named time (or bar(17)), usable anywhere: scene drop drop + 4, hits(t, drop)
 
 Drawing (one command per line, values are named):
 fill COLOR alpha=1                 // paints every pixel; COLOR can vary with x, y, t
@@ -32,6 +33,7 @@ Every shape also takes: color= alpha= (0 to 1) blur= (soft edge width) stroke= (
 Sizes and positions share the same units (1 = canvas height). angle is in degrees, clockwise.
 A shape's color can vary per pixel, like color=mix(red, yellow, y).
 let name = formula                 // reusable number or color, may use x, y, t
+fn hill(x) = 0.8 - 0.1 * x         // your own function, used like sin(); or a block: fn f(a, b), let lines, return VALUE, end
 
 Blocks (close each with end):
 repeat i 12                        // i = 0, 1, ..., 11
@@ -45,8 +47,17 @@ Inside define, use its own values plus x, y, t and inputs; pass anything else in
 group cx= cy= angle= scale= flip= dx= dy=   // turns, scales and mirrors (flip=-1) the lines inside around cx,cy
                                    // (default: canvas center), then moves them by dx,dy; coordinates inside stay the same
 clip circle cx= cy= r=             // draws the lines inside only within that shape (any shape; invert=1 for outside)
-camera cx= cy= zoom= angle=        // like group, for the rest of its block (a scene), without end
+camera cx= cy= zoom= angle=        // like group, for the rest of its block (a scene), without end; shake=0.02 * hits(t, 4)
+group depth=3                      // under a camera: moves a third as much (parallax)
 hero cx=0.3 angle=20 flip=-1       // a define call also takes angle scale flip dx dy, turning around its own cx,cy
+In a define, anchor hand x= y= angle= names a point; draw it with name=mila, then read mila.hand.x and mila.hand.y,
+or put a shape or drawing there with attach=mila.hand. bounds cx= cy= r= in a define: the circle it stays within (faster).
+sim ball                           // values with memory, worked out before playing: physics, bounces
+  state y = 0.2                    // starting value; read below as ball.y. dt = seconds per step
+  state vy = 0
+  vy += 2.5 * dt                   // lines that change states; also: if y > 0.8 ... else ... end
+  y += vy * dt
+end
 
 Colors: #rgb or #rrggbb, rgb(r,g,b) with 0-1 values, hsl(hue_degrees, s, l) with s and l 0-1, gray(v),
 names: white black red green blue yellow orange purple pink cyan magenta gray navy teal brown gold sky.
@@ -58,6 +69,7 @@ dist(x1,y1,x2,y2) = distance between two points. Constants: pi tau.
 Motion: keys(t, 0, 0.2, 1.5, 0.8, 3, 0.2) moves smoothly through values at key times (values may be colors);
 ease(v) easein(v) easeout(v) backout(v) (overshoots) bounce(v) take 0-1 progress; pingpong(v) goes 0 to 1 to 0 each unit.
 spring(t - 2, freq, damping) swings between -1 and 1 from 2 s on and dies out (defaults 2, 4); hits(t, 1, 2.5) is 1 at each time, fading fast.
+smooth(value, 0.5) follows a value with a gentle lag (cameras that follow); bar(9) or bar(9, 3) = the time of bar 9 (beat 3).
 Randomness: noise(a,b) or noise(a,b,c) smooth 0-1; fbm(a,b) or fbm(a,b,c) cloudy 0-1; hash(n) fixed random 0-1 per number.
 Rhythm: beat = beats since the first beat, pulse = 1 on every beat, fading to 0 before the next.
 Pointer: mx, my = where the viewer's pointer is (canvas center until it moves).

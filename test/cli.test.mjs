@@ -58,3 +58,48 @@ test('usage errors explain what to write', () => {
   assert.match(xyt('check', path.join(dir, 'missing.xyt')).stderr, /could not read/);
   assert.equal(xyt('--help').status, 0);
 });
+
+test('check: bounds, sims and shaders by time', () => {
+  const f = program('trees.xyt', ['define tree cx=0.5', '  bounds cx=cx cy=0.5 r=0.2', ...Array(10).fill('  circle cx=cx'), 'end', 'sim s', '  state v = 0', '  v += dt', 'end',
+    'repeat i 8', '  tree cx=i / 8 + 0 * s.v', 'end'].join('\n'));
+  const r = xyt('check', f);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /cost 18 \(80 if all the drawings with bounds covered the same pixel\), sims: s\./);
+});
+
+// a click track: a short burst every half second (120 bpm) from 0.25 s, louder on the first of four
+function clicks(file, bpm, offset, seconds) {
+  const sr = 22050, n = Math.round(sr * seconds), data = Buffer.alloc(44 + n * 2);
+  data.write('RIFF', 0); data.writeUInt32LE(36 + n * 2, 4); data.write('WAVEfmt ', 8); data.writeUInt32LE(16, 16);
+  data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22); data.writeUInt32LE(sr, 24); data.writeUInt32LE(sr * 2, 28);
+  data.writeUInt16LE(2, 32); data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(n * 2, 40);
+  const beat = 60 / bpm;
+  for (let k = 0; offset + k * beat < seconds; k++) {
+    const start = Math.round((offset + k * beat) * sr), amp = k % 4 === 0 ? 0.9 : 0.5;
+    for (let i = 0; i < 800 && start + i < n; i++) data.writeInt16LE(Math.round(32767 * amp * Math.exp(-i / 150) * Math.sin(i * 0.9)), 44 + (start + i) * 2);
+  }
+  writeFileSync(file, data);
+}
+
+test('cues: tempo, first beat, hits and loudness of a song', { skip: spawnSync('ffmpeg', ['-version']).error ? 'no ffmpeg' : false }, () => {
+  const wav = path.join(dir, 'clicks.wav');
+  clicks(wav, 120, 0.25, 20);
+  const r = xyt('cues', wav, '--hits', '4');
+  assert.equal(r.status, 0, r.stderr);
+  const bpm = +/bpm ([\d.]+)/.exec(r.stdout)[1], offset = +/offset=([\d.]+)/.exec(r.stdout)[1];
+  assert.ok(Math.abs(bpm - 120) < 0.3, `bpm ${bpm}`);
+  assert.ok(Math.abs(offset - 0.25) < 0.03, `offset ${offset}`);
+  assert.equal((r.stdout.match(/^cue hit\d+ /gm) || []).length, 4);
+  assert.match(r.stdout, /^track loudness step=0\.05 /m);
+  assert.doesNotMatch(r.stdout, /uncertain/);
+  // the lines work as a program's first lines
+  const f = program('song.xyt', r.stdout + 'scene hit1 hit2\n  circle r=0.1 + 0.2 * loudness\nend\n');
+  assert.equal(xyt('check', f).status, 0, xyt('check', f).stderr);
+  // a stem: its own track name and cue names, no tempo
+  const stem = xyt('cues', wav, '--name', 'drums', '--hits', '2');
+  assert.match(stem.stdout, /^cue drums_hit1 /m);
+  assert.match(stem.stdout, /^track drums step=/m);
+  assert.doesNotMatch(stem.stdout, /^bpm /m);
+  assert.match(xyt('cues', path.join(dir, 'missing.wav')).stderr, /could not read/);
+  assert.match(xyt('cues', wav, '--name', 'two words').stderr, /--name needs a plain name/);
+});

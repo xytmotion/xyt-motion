@@ -1,0 +1,60 @@
+// A snowball rolls down a hill: the hill is a fn, the ball a sim that follows its slope,
+// the camera follows the ball with smooth(), and the mountains move slower with depth.
+xyt 0.4
+canvas 16:9
+duration 12
+cue push 1.5
+
+// the ground, and how steep it is (y points down, so a positive slope goes downhill)
+fn hill(x) = 0.5 + 0.09 * x + 0.02 * sin(x * 2.5)
+fn slope(x) = (hill(x + 0.01) - hill(x - 0.01)) / 0.02
+
+sim ball
+  state x = 0.75
+  state v = 0
+  state spin = 0
+  if t > push
+    v += (1.6 * slope(x) / sqrt(1 + slope(x) ^ 2) - 0.15 * v) * dt
+  end
+  x += v * dt
+  spin += v / 0.05 * 57.3 * dt
+end
+
+define kid cx=0.5 cy=0.8 s=1 wave=0
+  bounds cx=cx cy=cy - 0.1 * s r=0.16 * s
+  ellipse cx=cx cy=cy - 0.06 * s rx=0.035 * s ry=0.06 * s color=#d94f45
+  circle cx=cx cy=cy - 0.15 * s r=0.03 * s color=#f2c7a5
+  rect cx=cx cy=cy - 0.18 * s w=0.07 * s h=0.02 * s radius=0.01 * s color=#3b6fb6
+  group cx=cx + 0.02 * s cy=cy - 0.1 * s angle=-120 + 35 * sin(wave)
+    line x1=cx + 0.02 * s y1=cy - 0.1 * s x2=cx + 0.08 * s y2=cy - 0.1 * s width=0.014 * s color=#d94f45
+    anchor hand x=cx + 0.08 * s y=cy - 0.1 * s
+  end
+end
+
+define snowball cx=0.5 cy=0.5 r=0.05 spin=0
+  circle cx=cx cy=cy r=r color=mix(#ffffff, #d6e4f5, clamp((x - cx + y - cy) / (2 * r) + 0.5))
+  group cx=cx cy=cy angle=spin
+    arc cx=cx cy=cy r=r * 0.6 width=r * 0.12 start=200 end=320 color=#c4d6ee
+  end
+end
+
+let camx = smooth(ball.x, 0.7)
+let camy = smooth(hill(ball.x), 0.9)
+fill mix(#8fc8f5, #eaf5ff, y)
+camera cx=camx cy=camy zoom=1.15 dx=aspect / 2 - camx dy=0.62 - camy
+
+group depth=5
+  repeat i 9
+    tri x1=i * 0.9 - 0.7 y1=0.95 x2=i * 0.9 + 0.7 y2=0.95 x3=i * 0.9 y3=0.42 + 0.12 * hash(i) color=#b9cde8
+  end
+end
+group depth=2
+  repeat i 14
+    circle cx=i * 0.6 + 0.2 * hash(i + 3) cy=0.9 + 0.08 * hash(i) r=0.18 color=#d5e3f3
+  end
+end
+
+fill mix(#ffffff, #d2e1f2, clamp((y - hill(x)) * 4)) alpha=step(hill(x), y)
+kid name=k cx=0.55 cy=hill(0.55) s=1 wave=t * 6 * (t < push + 1)
+circle attach=k.hand r=0.009 color=#3b6fb6
+snowball cx=ball.x cy=hill(ball.x) - 0.05 r=0.05 spin=ball.spin

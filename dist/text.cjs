@@ -1,4 +1,4 @@
-/*! xyt-motion text plugin 0.3.0 | MIT */
+/*! xyt-motion text plugin 0.4.0 | MIT */
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;

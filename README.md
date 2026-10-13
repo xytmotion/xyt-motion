@@ -75,9 +75,10 @@ npm i -D xyt-motion playwright && npx playwright install chromium
 npx xyt render film.xyt --at 12.5                  # one frame as PNG
 npx xyt render film.xyt --sheet                    # 12 frames across the duration on one PNG
 npx xyt render film.xyt --mp4 --audio song.mp3     # H.264 video with a sound track
+npx xyt cues song.mp3                              # the song's tempo, hits, parts and loudness, as lines for a program
 ```
 
-Frames are exactly what a browser shows. Options: `--height`, `--fps`, `--from`/`--to`, `--frames`, `--set name=value` for inputs, `--font file.svg` to add a stroke font for text, `-o` for the output file. The command line loads the text plugin and its Cyrillic font. A language model writing XYT can use `check` and `--sheet` to read its errors and look at its own frames.
+Frames are exactly what a browser shows. Options: `--height`, `--fps`, `--from`/`--to` (videos and sheets), `--frames`, `--set name=value` for inputs, `--font file.svg` to add a stroke font for text, `-o` for the output file. The command line loads the text plugin and its Cyrillic font. A language model writing XYT can use `check` and `--sheet` to read its errors and look at its own frames.
 
 ## The language in two minutes
 
@@ -113,7 +114,39 @@ Motion helpers: `keys(t, 0, 0.2, 1.5, 0.8, 3, 0.2)` moves smoothly through value
 
 Shapes include `curve`, a line bent toward a control point. Scenes can be timed in bars (`bpm 96` then `scene bars 9 16`) so a program follows the tempo of the track under it.
 
-Full reference: [docs/language.md](docs/language.md). Fifteen examples: [examples/](examples/).
+For longer films:
+
+```text
+cue drop 32.5                                // a moment of the song; xyt cues song.mp3 finds them
+fn hill(x) = 0.8 - 0.1 * x                   // your own function
+
+sim ball                                     // values with memory, worked out before playing
+  state y = 0.2
+  state vy = 0
+  vy += 2.5 * dt
+  y += vy * dt
+  if y > hill(0.5) && vy > 0
+    vy = -0.6 * vy
+  end
+end
+
+define kid cx=0.5 cy=0.8 reach=0
+  bounds cx=cx cy=cy - 0.2 r=0.35            // pixels outside skip it: faster
+  ...
+  anchor hand x=cx + 0.15 y=cy - 0.3         // a point other lines can use
+end
+
+scene drop drop + 8
+  camera cy=smooth(ball.y, 0.5)              // follows with a gentle lag
+  group depth=4                              // parallax: moves a quarter as much
+    ...mountains...
+  end
+  kid name=mila
+  circle attach=mila.hand r=0.02             // stays in her hand
+end
+```
+
+Full reference: [docs/language.md](docs/language.md). Sixteen examples: [examples/](examples/).
 
 ## Using it with a language model
 
@@ -173,9 +206,9 @@ Details: [docs/language.md](docs/language.md#plugins).
 
 ## API
 
-### `compile(source)`
+### `compile(source, options)`
 
-Never throws for problems in the source. Returns:
+Never throws for problems in the source. `options.split`: `true` to always make one shader per stretch of time between scene changes, `false` never, `'auto'` (default) for large programs. Returns:
 
 | Field | Meaning |
 |---|---|
@@ -187,7 +220,11 @@ Never throws for problems in the source. Returns:
 | `inputs` | `[{ name, kind: 'num' or 'col', value, min, max }]` |
 | `scenes` | `[{ start, end, fadein, fadeout }]` |
 | `defines` | names of reusable drawings |
-| `cost` | work per pixel in the busiest moment, in shapes (`noise` and `fbm` count as several); a performance estimate |
+| `cost` | work per pixel in the busiest moment, in shapes (`noise` and `fbm` count as several; a drawing with `bounds` counts once); a performance estimate |
+| `worstCost` | the same if every drawing with bounds covered the same pixel |
+| `parts` | `null`, or `[{ start, end, glsl }]`: one shader per stretch of time with the same scenes |
+| `frames` | `null`, or the sims, `smooth()` values and tracks: `frames.run(inputs).at(t)` gives the values the shader reads at time `t` (`frames.names` says which) |
+| `cues`, `fns`, `sims` | `[{ name, time }]`, and the names of the program's fns and sims |
 | `costs` | `[{ line, cost }]`, heaviest first: which lines the cost comes from, while they are drawn |
 | `plugins` | plugins the program uses (`use text`) |
 
@@ -207,6 +244,7 @@ Never throws for problems in the source. Returns:
 | `maxPixelRatio`, `maxPixels` | `2`, 2 × 1080p | resolution caps |
 | `fitAspect` | `true` | size the canvas to the program's shape |
 | `inputs` | `{}` | starting values for inputs |
+| `split` | `'auto'` | one shader per stretch of time with the same scenes (see `compile`) |
 
 Methods: `load(source)` (keeps the previous program running if the new one has errors), `play()`, `pause()`, `seek(t)`, `set(name, value)` (colors as `'#rrggbb'` or `[r, g, b]`), `get(name)`, `setSize(w, h)` (fixed pixels, for exports), `renderAt(t)`, `readPixels()` (RGBA, top row first), `resize()`, `destroy()`, `on(event, fn)` for `load error frame play pause end`. Properties: `time`, `duration`, `playing`, `fps`, `result`.
 
@@ -221,9 +259,11 @@ for (let f = 0; f < player.duration * 30; f++) {
 
 ## How it works
 
-Source is parsed line by line, every value is type-checked as a number or a color, and the program becomes one GLSL fragment shader. Each shape is a signed distance function (mostly after Inigo Quilez's 2D catalogue), turned into anti-aliased coverage and blended over what came before. `repeat` becomes a real GPU loop, `define` a GLSL function, `scene` a time-guarded block, and `input` a uniform. Shapes thinner than a pixel fade in proportion to their size, so a blink or a vanishing star leaves no hairline.
+Source is parsed line by line, every value is type-checked as a number or a color, and the program becomes one GLSL fragment shader. Each shape is a signed distance function (mostly after Inigo Quilez's 2D catalogue), turned into anti-aliased coverage and blended over what came before. `repeat` becomes a real GPU loop, `define` and `fn` GLSL functions, `scene` a time-guarded block, and `input` a uniform. Shapes thinner than a pixel fade in proportion to their size, so a blink or a vanishing star leaves no hairline.
 
-Every pixel evaluates every active shape each frame, so cost grows with shapes × pixels. `compile` reports this as `cost`; the busiest example, the 30-second cartoon, is about 107. Programs above 400 get a warning, and above 2,000 an error.
+Sims, `smooth()` and tracks are worked out on the CPU before the first frame, over the whole duration, and each frame hands their values at its time to the shader. Long programs with many scenes become one shader per stretch of time, so each holds only what plays then.
+
+Every pixel evaluates every active shape each frame, except drawings whose `bounds` it is outside, so cost grows with shapes × pixels. `compile` reports this as `cost`; the busiest example, the 30-second cartoon, is about 107. Programs above 400 get a warning, and above 2,000 an error.
 
 ## Benchmarks
 
@@ -242,15 +282,15 @@ Ten animations, 4 seconds at 512 × 512 and 30 fps:
 | Campfire flame | 203 B | 110 KB | 540× | no clean way |
 | Analog clock | 701 B | 20 KB | 29× | 2.2 KB |
 
-These sizes are the program text alone. The library adds 21 KB gzipped, once per page. With a single animation, a short video can still be smaller (the progress bar's 12 KB) and the clock comes out about even, while gradients and noise stay several times smaller (the plasma: about 21 KB against 130 KB). Every further animation on the page costs only its text.
+These sizes are the program text alone. The library adds 34 KB gzipped, once per page. With a single animation, a short video can still be smaller (the progress bar's 12 KB) and the clock comes out about even, while gradients and noise stay several times smaller (the plasma: about 21 KB against 130 KB). Every further animation on the page costs only its text.
 
 Run-length encoding the frames instead works well for flat graphics, but on gradients and noise neighbouring pixels never match: the plasma came out 17% *larger* than raw pixels. That is exactly where formulas win.
 
 ## Limitations and roadmap
 
 - **Text** draws Latin scripts, and Russian with the optional Cyrillic font (serif, unlike the Latin; Serbian Ђ Љ Њ Ћ Џ need a font that has them). Other scripts need a stroke font added with `text.addFont()`. **Curves** are lines (quadratic Bézier); there are no filled free-form shapes.
-- **No memory between frames**: an XYT program is a pure function of x, y and t. Games keep their state in JavaScript and pass it in through inputs.
-- **Sound sync**: planned around `clock` (drive time from an `<audio>` element) plus `bpm` and `offset`. Song structure markers are next.
+- **No memory between frames**: an XYT program is a pure function of x, y and t. Sims and `smooth()` have memory, but they are worked out before the animation plays, so they depend only on time and inputs; games keep their live state in JavaScript and pass it in through inputs.
+- **Sound sync**: `clock` drives time from an `<audio>` element, `bpm`, `offset`, `bar()` and `cue` follow the song, and `xyt cues` measures it. Sound effects at cues are next.
 - **Export**: `xyt render --mp4` (see [Command line](#command-line)), or `setSize` + `renderAt` + `readPixels` from your own code.
 - WebGL 2 and faster rendering for scenes with thousands of shapes.
 

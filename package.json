@@ -1,6 +1,6 @@
 {
   "name": "xyt-motion",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "XYT: a tiny language for pictures and motion as formulas of x, y and t, compiled to GPU shaders. Designed to be written by people and by LLMs.",
   "author": "xytmotion",
   "homepage": "https://xytmotion.github.io/xyt-motion/playground/",
@@ -66,7 +66,7 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs && node scripts/playground.mjs",
-    "test": "node --test test/compiler.test.mjs test/player.test.mjs test/plugins.test.mjs test/cli.test.mjs",
+    "test": "node --test test/compiler.test.mjs test/features.test.mjs test/player.test.mjs test/plugins.test.mjs test/cli.test.mjs",
     "test:gpu": "node test/gpu.mjs",
     "prepublishOnly": "npm run build && npm test",
     "playground": "node scripts/playground.mjs"

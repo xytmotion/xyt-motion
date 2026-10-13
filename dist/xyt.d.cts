@@ -45,14 +45,41 @@ export interface CompileResult {
   defines: string[];
   /** Plugins the program uses (`use text`). */
   plugins: string[];
-  /** Work per pixel in the busiest moment, in shapes (noise and fbm count as several). */
+  /** Work per pixel in the busiest moment, in shapes (noise and fbm count as several; a drawing with bounds counts once). */
   cost: number;
+  /** The cost if every drawing with bounds covered the same pixel. */
+  worstCost: number;
   /** Which lines the cost comes from, heaviest first: each line's cost per pixel while it is drawn. */
   costs: Array<{ line: number; cost: number }>;
+  /** One shader per stretch of time with the same scenes, or null when the program keeps one (`glsl`). */
+  parts: Array<{ start: number; end: number; glsl: string }> | null;
+  /** The sims, smooth() values and tracks the shader reads each frame, or null when there are none. */
+  frames: FrameValues | null;
+  /** Named moments of the song, from `cue` lines. */
+  cues: Array<{ name: string; time: number }>;
+  /** Names of the program's own functions (`fn`). */
+  fns: string[];
+  /** Names of the program's sims. */
+  sims: string[];
+}
+
+export interface CompileOptions {
+  /** One shader per stretch of time between scene changes: always (true), never (false), or for large programs ('auto', the default). */
+  split?: boolean | 'auto';
 }
 
 /** Compile XYT source to a GLSL fragment shader. Never throws for problems in the source. */
-export function compile(source: string): CompileResult;
+export function compile(source: string, options?: CompileOptions): CompileResult;
+
+/** Values that are the same for every pixel of a frame and need memory or data: sim states, smooth() and tracks. */
+export class FrameValues {
+  /** What each value is, in the order `at` returns them: 'ball.y', 'smooth', a track's name. */
+  readonly names: string[];
+  /** Whether the values depend on the program's inputs (known after the first run). */
+  readonly usesInputs: boolean;
+  /** Works the values out over the whole duration for these inputs; the last run is kept and reused. */
+  run(inputs?: Record<string, number | Color>): { at(time: number): Float32Array };
+}
 
 /** The syntax tree, for tools. Its shape may change before 1.0. */
 export interface ParsedProgram {
@@ -102,6 +129,8 @@ export interface PlayerOptions {
   preserveDrawingBuffer?: boolean;
   /** Starting values for inputs. */
   inputs?: Record<string, number | Color>;
+  /** One shader per stretch of time with the same scenes; see CompileOptions. Default 'auto'. */
+  split?: boolean | 'auto';
 }
 
 export class Player {

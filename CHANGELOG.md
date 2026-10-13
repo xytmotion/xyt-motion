@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0
+
+From making a 4-minute film and a 2-minute cartoon in XYT: what kept coming back as long or wrong programs.
+
+- `fn name(a, b) = formula`, or a block of `let` lines ending with `return`: your own functions, with numbers or
+  colors, usable anywhere below them (one formula for a hill that is drawn and a hill a character stands on).
+- Anchors: `anchor hand x= y= angle=` inside a define names a point, turned with the groups around it. Draw it with
+  `name=mila`, then read `mila.hand.x`, `mila.hand.y`, `mila.hand.angle` and `mila.cx`, or put something there with
+  `attach=mila.hand` (shapes and define calls). A prop held in a hand stays in the hand.
+- `bounds cx= cy= r=` in a define: pixels outside the circle skip the drawing. The Pebble cartoon drew twice as fast
+  with the same pixels. `cost` counts a bounded drawing once; `worstCost` is the old way of counting.
+- `sim NAME` with `state`, lines that change states (`+=` and co.), `let` and `if`/`else`: physics and anything with
+  memory, worked out before the first frame and read as `ball.y`. The program stays a pure function of time.
+- `smooth(value, seconds)`: a value followed with a gentle lag, for cameras that follow a character.
+- `cue name time` and `bar(n, beat)`: named moments of the song, usable everywhere, including scene times
+  (`scene drop drop + 4`, `scene bar(9) bar(17)`) and `duration`. `track name step=0.05 values...`: values over time.
+- `group depth=3` under a camera: parallax. `camera shake=`: a camera that shakes on impacts.
+- Long programs become one shader per stretch of time with the same scenes (`compile(source, { split })`, the
+  player's `split` option): a 4-minute film compiled and drew like a short one, 1.1 to 1.7 times faster per frame.
+- `xyt cues song.mp3`: tempo, first beat, the strongest hits, where the music changes and its loudness over time, as
+  lines to paste into a program (`--name drums` for a stem). `xyt render --sheet --from 90 --to 120`.
+- Names with dots read the values of named drawings and sims. Language version 0.4. New example: rolling.
+
 ## 0.3.0
 
 From the feedback of a model that wrote a one-minute cartoon in XYT.

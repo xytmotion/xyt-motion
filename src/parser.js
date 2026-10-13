@@ -1,6 +1,8 @@
 // Source text -> syntax tree. One statement per line; blocks close with `end`.
 import { XytError, suggest, parseHex } from './util.js';
-import { SHAPES, SHAPE_ALIASES, COMMANDS, NAMED_COLORS, BUILTINS, ASPECT_NAMES, LANGUAGE_VERSION, LIMITS } from './language.js';
+import {
+  SHAPES, SHAPE_ALIASES, COMMANDS, LATER_COMMANDS, BLOCK_COMMANDS, NAMED_COLORS, BUILTINS, ASPECT_NAMES, LANGUAGE_VERSION, LIMITS,
+} from './language.js';
 import { pluginNamed, loadedPlugins, KNOWN_PLUGINS } from './registry.js';
 
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -44,7 +46,8 @@ function lexLine(src, line) {
       continue;
     }
     if (/[A-Za-z_]/.test(c)) {
-      const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(src.slice(i));
+      // dotted names read the values of named drawings and sims: mila.hand.x, ball.vy
+      const m = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/.exec(src.slice(i));
       if (m[0].length > LIMITS.nameLength) throw new XytError(line, `the name '${m[0].slice(0, 16)}...' is too long; names can be up to ${LIMITS.nameLength} characters`);
       toks.push({ k: 'id', v: m[0] });
       i += m[0].length;
@@ -167,6 +170,44 @@ function constValue(c, line, name) {
   throw new XytError(line, `input ${name} needs a starting value that is a plain number or color, like: input ${name} = 0.5`);
 }
 
+/** A plain name, not dotted: what fn, sim, cue, track, anchor and name= give their things. */
+function plainName(k) { return !!k && k.k === 'id' && !k.v.includes('.'); }
+
+/**
+ * The value of a formula known when the program compiles: numbers, cue names and bar(), for
+ * scene times, durations and cues. Anything else is an error naming what was allowed.
+ */
+function constEval(e, line, env, what) {
+  const ev = (n) => constEval(n, line, env, what);
+  switch (e.t) {
+    case 'num': return e.v;
+    case 'neg': return -ev(e.a);
+    case 'bin': {
+      const a = ev(e.a), b = ev(e.b);
+      const ops = { '+': a + b, '-': a - b, '*': a * b, '/': b === 0 ? 0 : a / b, '%': b === 0 ? 0 : a - b * Math.floor(a / b), '^': a ** b };
+      if (e.op in ops) return ops[e.op];
+      break;
+    }
+    case 'var':
+      if (env.cues.has(e.name)) return env.cues.get(e.name);
+      if (e.name === 'pi') return Math.PI;
+      if (e.name === 'tau') return Math.PI * 2;
+      if (e.name === 'dur' && env.duration !== null) return env.duration;
+      throw new XytError(line, `${what} must be a number, a cue name or bar(...); '${e.name}' is not a cue named above.` + suggest(e.name, [...env.cues.keys()]));
+    case 'call': {
+      const args = e.args.map(ev);
+      const fns = { min: Math.min, max: Math.max, abs: Math.abs, floor: Math.floor, ceil: Math.ceil, round: (v) => Math.floor(v + 0.5) };
+      if (e.fn === 'bar') {
+        if (args.length < 1 || args.length > 2) throw new XytError(line, 'bar() takes the bar, and optionally the beat, counting from 1: bar(9) or bar(9, 3)');
+        return env.barTime(args[0], args.length > 1 ? args[1] : 1);
+      }
+      if (fns[e.fn] && args.length >= 1) return fns[e.fn](...args);
+      break;
+    }
+  }
+  throw new XytError(line, `${what} must be a number, a cue name or bar(...), like: scene 12 bar(9) or scene splash splash + 4`);
+}
+
 // ---------- statements ----------
 export function parse(src) {
   const lines = String(src).split('\n');
@@ -175,6 +216,7 @@ export function parse(src) {
   const program = {
     version: null, aspect: 1, aspectLabel: '1:1', duration: null, bpm: 120, offset: 0, bar: 4,
     inputs: [], body: root.body, errors: [], defines: new Set(), uses: [],
+    fns: new Set(), sims: new Set(), cues: [], tracks: [],
   };
   // A shape from a plugin the program uses, or null.
   const pluginShape = (name) => {
@@ -193,11 +235,16 @@ export function parse(src) {
     }
     return { plugin, def, str, attrs: parseNamed(c, what) };
   };
-  // Times written in bars (`scene bars 9 16`, `duration bars 24`) become seconds once the tempo is known.
-  let durationBars = null;
-  const barScenes = [];
+  // Times written in bars (`scene bars 9 16`, `duration bars 24`) become seconds once the tempo is known,
+  // and times written as formulas (`scene splash bar(17)`) once the cues are known.
+  let durationBars = null, durationExpr = null;
+  const barScenes = [], exprScenes = [];
   // `bars` (or `bar`) after a command: the numbers that follow count bars, not seconds.
-  const inBars = (c) => { const k = c.peek(); if (k && k.k === 'id' && (k.v === 'bars' || k.v === 'bar')) { c.next(); return true; } return false; };
+  const inBars = (c) => {
+    const k = c.peek();
+    if (k && k.k === 'id' && (k.v === 'bars' || k.v === 'bar') && !c.isOp('(', 1)) { c.next(); return true; } // bar(9) is a formula
+    return false;
+  };
   const topLevelOnly = (cmd, line) => {
     if (stack.length > 1) throw new XytError(line, `${cmd} must be at the top level, not inside a ${stack[stack.length - 1].k}`);
   };
@@ -212,8 +259,29 @@ export function parse(src) {
       const c = new Cursor(toks, line);
       c.i = 1;
       const cmd = head.v;
-      const body = stack[stack.length - 1].body;
+      const top = stack[stack.length - 1];
+      const body = top.body;
       const done = (what) => { if (!c.atEnd()) throw new XytError(line, `unexpected '${tokStr(c.peek())}' after ${what}`); };
+      // A fn holds lets and one return; a sim holds states, lets, ifs and lines that change a state.
+      if (top.k === 'fn' && !['let', 'return', 'end'].includes(cmd)) {
+        throw new XytError(line, `a fn holds let lines and one return line, like: return 2 * a + b; '${cmd}' can't go inside it`);
+      }
+      if (top.k === 'fn' && top.ret && cmd === 'let') throw new XytError(line, 'return is the last line of a fn; put let lines above it');
+      if (stack.some((b) => b.k === 'sim')) {
+        const op = (o) => toks[o] && toks[o].k === 'op' ? toks[o].v : null;
+        const assign = op(1) === '=' ? '=' : ['+', '-', '*', '/'].includes(op(1)) && op(2) === '=' ? op(1) : null;
+        if (assign && !['let', 'state'].includes(cmd)) {
+          if (!plainName(head)) throw new XytError(line, `a sim can only change its own states; '${cmd}' belongs to something else`);
+          c.i = assign === '=' ? 2 : 3;
+          const expr = parseExpr(c, 0);
+          done('the value');
+          body.push({ k: 'set', name: cmd, op: assign, expr, line });
+          continue;
+        }
+        if (!['let', 'state', 'if', 'else', 'end'].includes(cmd)) {
+          throw new XytError(line, `a sim holds state, let, if and else lines, and lines that change a state, like: vy += 9.8 * dt. It draws nothing: '${cmd}' goes after its end`);
+        }
+      }
 
       switch (cmd) {
         case 'xyt': {
@@ -262,6 +330,12 @@ export function parse(src) {
         case 'duration': {
           topLevelOnly(cmd, line);
           const bars = inBars(c);
+          if (!bars && !c.atEnd() && !(c.peek().k === 'num' && c.peek(1) === undefined)) {
+            // a formula: duration bar(33), duration outro + 2
+            durationExpr = { expr: parseExpr(c, 0), line };
+            done('the duration');
+            break;
+          }
           const v = constNumber(c, 'duration');
           if (v <= 0) throw new XytError(line, bars ? 'duration bars needs a positive number of bars, like: duration bars 16' : 'duration needs a positive number of seconds, like: duration 4');
           done('the duration');
@@ -308,6 +382,144 @@ export function parse(src) {
           program.inputs.push(input);
           break;
         }
+        case 'fn': {
+          // fn wave(a, b) = formula, or a block of let lines ending with return
+          topLevelOnly(cmd, line);
+          const n = c.next();
+          if (!plainName(n)) throw new XytError(line, 'fn needs a name and its values in parentheses: fn wave(x) = sin(x * 3)');
+          if (!c.isOp('(')) throw new XytError(line, `fn ${n.v} needs its values in parentheses after the name, like: fn ${n.v}(x) = x * 2, or fn ${n.v}() = t * 2`);
+          c.next();
+          const params = [];
+          if (!c.isOp(')')) {
+            for (;;) {
+              const k = c.next();
+              if (!plainName(k)) throw new XytError(line, `the values of fn ${n.v} are names, like: fn ${n.v}(x, height) = ...`);
+              if (params.includes(k.v)) throw new XytError(line, `'${k.v}' is given twice`);
+              params.push(k.v);
+              if (c.isOp(',')) { c.next(); continue; }
+              break;
+            }
+          }
+          c.expect(')');
+          if (program.fns.has(n.v)) throw new XytError(line, `fn '${n.v}' is written twice`);
+          program.fns.add(n.v);
+          const blk = { k: 'fn', name: n.v, params, body: [], ret: null, retLine: line, line };
+          body.push(blk);
+          if (c.isOp('=')) { c.next(); blk.ret = parseExpr(c, 0); done('the formula'); }
+          else { done(`fn ${n.v}(...)`); stack.push(blk); }
+          break;
+        }
+        case 'return': {
+          if (top.k !== 'fn') throw new XytError(line, 'return only goes in a fn block: fn name(a) ... return a * 2 ... end');
+          if (top.ret) throw new XytError(line, `fn ${top.name} already returns a value; a fn has one return line`);
+          top.ret = parseExpr(c, 0);
+          top.retLine = line;
+          done('the value');
+          break;
+        }
+        case 'anchor': {
+          // a named point of a define, read by the lines below its use: mila.hand.x
+          const di = stack.findIndex((b) => b.k === 'define');
+          if (di < 0) throw new XytError(line, 'anchor only goes inside a define, where it names a point of the drawing: anchor hand x=cx + 0.1 * s y=cy');
+          const inside = stack.slice(di + 1).find((b) => b.k !== 'group');
+          if (inside) throw new XytError(line, `an anchor can't go inside a ${inside.k}; put it in the define itself or inside a group`);
+          const n = c.next();
+          if (!plainName(n)) throw new XytError(line, 'anchor needs a name and its point: anchor hand x=cx + 0.1 y=cy - 0.2 angle=30');
+          const def = stack[di];
+          if (def.anchors.includes(n.v)) throw new XytError(line, `anchor '${n.v}' is given twice in define ${def.name}`);
+          def.anchors.push(n.v);
+          body.push({ k: 'anchor', name: n.v, attrs: parseNamed(c, 'anchor'), line });
+          break;
+        }
+        case 'bounds': {
+          // the circle a define draws within: pixels outside it skip the whole drawing
+          if (top.k !== 'define') {
+            throw new XytError(line, 'bounds goes directly inside a define, as the circle its drawing stays within: bounds cx=cx cy=cy - 0.1 * s r=0.3 * s');
+          }
+          if (top.bounded) throw new XytError(line, `define ${top.name} already has bounds`);
+          top.bounded = true;
+          body.push({ k: 'bounds', attrs: parseNamed(c, 'bounds'), line });
+          break;
+        }
+        case 'sim': {
+          // values computed step by step before the first frame: physics, followers, anything with memory
+          topLevelOnly(cmd, line);
+          const n = c.next();
+          if (!plainName(n)) throw new XytError(line, 'sim needs a name, like: sim ball. Its states are then read as ball.y');
+          if (program.sims.has(n.v)) throw new XytError(line, `sim '${n.v}' is written twice`);
+          program.sims.add(n.v);
+          const blk = { k: 'sim', name: n.v, step: null, body: [], line };
+          // opened before its options are checked, so a bad option doesn't turn its lines into errors too
+          body.push(blk);
+          stack.push(blk);
+          const opts = parseNamed(c, 'sim');
+          for (const o of Object.keys(opts)) {
+            if (o !== 'step') throw new XytError(line, `sim has no '${o}'.` + suggest(o, ['step']) + ' It takes: step (seconds per step, default 1/240)');
+            const e = opts[o];
+            if (e.t !== 'num' && !(e.t === 'bin' && e.op === '/' && e.a.t === 'num' && e.b.t === 'num')) throw new XytError(line, 'sim step needs a plain number of seconds, like: step=0.002 or step=1/500');
+            blk.step = e.t === 'num' ? e.v : e.a.v / e.b.v;
+            if (!(blk.step >= 1e-4 && blk.step <= 0.1)) { blk.step = null; throw new XytError(line, 'sim step must be between 0.0001 and 0.1 seconds'); }
+          }
+          break;
+        }
+        case 'state': {
+          if (top.k !== 'sim') throw new XytError(line, 'state goes directly inside a sim (not inside if): state y = 0.2');
+          const n = c.next();
+          if (!plainName(n)) throw new XytError(line, 'state needs a name and its starting value: state y = 0.2');
+          c.expect('=');
+          const expr = parseExpr(c, 0);
+          done('the starting value');
+          body.push({ k: 'state', name: n.v, expr, line });
+          break;
+        }
+        case 'if': {
+          if (!stack.some((q) => q.k === 'sim')) {
+            throw new XytError(line, 'if only goes inside a sim block; elsewhere a condition is a number you multiply by, like: alpha=(t > 2) * 0.5');
+          }
+          if (c.atEnd()) throw new XytError(line, 'if needs a condition: if y > 0.8');
+          const blk = { k: 'if', cond: parseExpr(c, 0), then: [], other: null, line };
+          blk.body = blk.then;
+          done('the condition');
+          body.push(blk);
+          stack.push(blk);
+          break;
+        }
+        case 'else': {
+          if (top.k !== 'if' || top.other) throw new XytError(line, "else goes between an if and its 'end', once");
+          done('else');
+          top.other = [];
+          top.body = top.other;
+          break;
+        }
+        case 'cue': {
+          // a named moment of the song: cue splash 108.8, cue chorus bar(17)
+          topLevelOnly(cmd, line);
+          const n = c.next();
+          if (!plainName(n)) throw new XytError(line, 'cue needs a name and a time: cue splash 12.5, or cue chorus bar(17)');
+          if (c.isOp('=')) c.next();
+          if (c.atEnd()) throw new XytError(line, `cue ${n.v} needs a time: cue ${n.v} 12.5`);
+          const expr = parseExpr(c, 0);
+          done('the time');
+          if (program.cues.some((q) => q.name === n.v)) throw new XytError(line, `cue '${n.v}' is named twice`);
+          program.cues.push({ name: n.v, expr, line, value: 0 });
+          break;
+        }
+        case 'track': {
+          // values over time, one every step seconds: a song's loudness, measured by `xyt cues`
+          topLevelOnly(cmd, line);
+          const n = c.next();
+          const how = 'track needs a name, step= (the seconds between values) and its values: track level step=0.05 0 0.2 0.5';
+          if (!plainName(n) || !c.isNamedValue() || c.peek().v !== 'step') throw new XytError(line, how);
+          c.next(); c.next();
+          const step = constNumber(c, 'track step');
+          if (!(step > 0)) throw new XytError(line, how);
+          const values = [];
+          while (!c.atEnd()) values.push(constNumber(c, 'each value of a track'));
+          if (!values.length) throw new XytError(line, how);
+          if (program.tracks.some((q) => q.name === n.v)) throw new XytError(line, `track '${n.v}' is written twice`);
+          program.tracks.push({ name: n.v, step, values, line });
+          break;
+        }
         case 'let': {
           const n = c.next();
           if (!n || n.k !== 'id') throw new XytError(line, 'let needs a name: let speed = 2');
@@ -330,12 +542,26 @@ export function parse(src) {
         case 'scene': {
           if (stack.length > 1) throw new XytError(line, `a scene can't go inside a ${stack[stack.length - 1].k}; close it with 'end' first`);
           const bars = inBars(c);
-          const a = constNumber(c, 'scene'), b = constNumber(c, 'scene');
-          if (bars && !(a >= 1 && b >= a)) throw new XytError(line, 'scene bars needs its first and last bar, counting from 1, both included: scene bars 9 16');
-          if (!bars && !(b > a)) throw new XytError(line, 'scene needs a start and an end time in seconds, end after start: scene 6 12');
+          let a, b, ea = null, eb = null;
+          if (bars) {
+            a = constNumber(c, 'scene'); b = constNumber(c, 'scene');
+            if (!(a >= 1 && b >= a)) throw new XytError(line, 'scene bars needs its first and last bar, counting from 1, both included: scene bars 9 16');
+          } else {
+            // numbers, or formulas of cues and bar(): scene splash splash + 4, scene bar(9) bar(17)
+            const how = 'scene needs a start and an end time in seconds, end after start: scene 6 12';
+            if (c.atEnd() || c.isNamedValue()) throw new XytError(line, how);
+            ea = parseExpr(c, 0);
+            if (c.atEnd() || c.isNamedValue()) throw new XytError(line, how);
+            eb = parseExpr(c, 0);
+            if (ea.t === 'num' && eb.t === 'num') {
+              a = ea.v; b = eb.v; ea = eb = null;
+              if (!(b > a)) throw new XytError(line, how);
+            }
+          }
           const opts = parseNamed(c, 'scene');
           const blk = { k: 'scene', start: a, end: b, fadein: 0, fadeout: 0, body: [], line };
           if (bars) barScenes.push(blk);
+          if (ea) { blk.startExpr = ea; blk.endExpr = eb; exprScenes.push(blk); }
           for (const o of Object.keys(opts)) {
             if (!['fade', 'fadein', 'fadeout'].includes(o)) throw new XytError(line, `scene has no '${o}'.` + suggest(o, ['fade', 'fadein', 'fadeout']) + ' It takes: fade, fadein, fadeout');
             if (opts[o].t !== 'num') throw new XytError(line, `scene ${o} needs a plain number of seconds`);
@@ -351,11 +577,12 @@ export function parse(src) {
           topLevelOnly(cmd, line);
           const n = c.next();
           if (!n || n.k !== 'id') throw new XytError(line, 'define needs a name and its values: define bird cx=0.5 cy=0.5 s=1');
-          if (COMMANDS.includes(n.v) || SHAPES[n.v] || SHAPE_ALIASES[n.v] || BUILTINS[n.v] || NAMED_COLORS[n.v] || pluginShape(n.v) || n.v === 'background' || n.v === 'bg')
+          if (n.v.includes('.')) throw new XytError(line, `a define's name can't have dots: dots read the values of named drawings, like mila.hand.x`);
+          if (COMMANDS.includes(n.v) || LATER_COMMANDS.includes(n.v) || BLOCK_COMMANDS[n.v] || SHAPES[n.v] || SHAPE_ALIASES[n.v] || BUILTINS[n.v] || NAMED_COLORS[n.v] || pluginShape(n.v) || n.v === 'background' || n.v === 'bg')
             throw new XytError(line, `'${n.v}' is a built-in name; pick another name`);
           if (program.defines.has(n.v)) throw new XytError(line, `'${n.v}' is defined twice`);
           const params = parseNamed(c, 'define');
-          const blk = { k: 'define', name: n.v, params, body: [], line };
+          const blk = { k: 'define', name: n.v, params, body: [], anchors: [], bounded: false, line };
           program.defines.add(n.v);
           body.push(blk);
           stack.push(blk);
@@ -388,9 +615,10 @@ export function parse(src) {
           break;
         }
         case 'end': {
-          if (stack.length === 1) throw new XytError(line, "'end' without a matching repeat, scene, define, group or clip");
+          if (stack.length === 1) throw new XytError(line, "'end' without a matching repeat, scene, define, group, clip, fn, sim or if");
           done("'end'");
           stack.pop();
+          if (top.k === 'fn' && !top.ret) throw new XytError(line, `fn ${top.name} has no return line; end it with the value it gives, like: return a * 2`);
           break;
         }
         case 'fill': case 'background': case 'bg': {
@@ -414,11 +642,12 @@ export function parse(src) {
             if (owner) throw new XytError(line, `${cmd} comes from the '${owner.name}' plugin: add 'use ${owner.name}' at the top of the program`);
             const official = Object.keys(KNOWN_PLUGINS).find((n) => KNOWN_PLUGINS[n].commands.includes(cmd));
             if (official) throw new XytError(line, `${cmd} comes from the '${official}' plugin: add 'use ${official}' at the top of the program, and load the plugin: ${KNOWN_PLUGINS[official].load}`);
-            const definedLater = lines.slice(li + 1).some((l) => new RegExp(`^\\s*define\\s+${cmd}\\b`).test(l));
+            if (BLOCK_COMMANDS[cmd]) throw new XytError(line, `${cmd} only goes inside a ${BLOCK_COMMANDS[cmd]} block`);
+            const definedLater = lines.slice(li + 1).some((l) => new RegExp(`^\\s*define\\s+${cmd.replace(/\./g, '\\.')}\\b`).test(l));
             if (definedLater) throw new XytError(line, `'${cmd}' is defined further down; move its define block above this line`);
-            const known = COMMANDS.concat(Object.keys(SHAPES), [...program.defines]);
+            const known = COMMANDS.concat(LATER_COMMANDS, Object.keys(SHAPES), [...program.defines]);
             throw new XytError(line, `unknown command '${cmd}'.` + suggest(cmd, known) +
-              ` Commands: ${COMMANDS.join(', ')}; shapes: ${Object.keys(SHAPES).join(', ')}` +
+              ` Commands: ${COMMANDS.concat(LATER_COMMANDS).join(', ')}; shapes: ${Object.keys(SHAPES).join(', ')}` +
               (program.defines.size ? `; defined: ${[...program.defines].join(', ')}` : ''));
           }
         }
@@ -434,6 +663,34 @@ export function parse(src) {
   const barLength = 60 / program.bpm * program.bar;
   for (const s of barScenes) { s.start = program.offset + (s.start - 1) * barLength; s.end = program.offset + s.end * barLength; }
   if (durationBars !== null && program.duration === null) program.duration = Math.min(program.offset + durationBars * barLength, 3600);
+  // cues in order (each may use the ones above it), then the times written as formulas
+  const env = {
+    cues: new Map(), duration: null,
+    barTime: (n, b) => program.offset + ((n - 1) * program.bar + (b - 1)) * 60 / program.bpm,
+  };
+  for (const q of program.cues) {
+    try { q.value = constEval(q.expr, q.line, env, `cue ${q.name}`); env.cues.set(q.name, q.value); } catch (e) { if (e.xyt) program.errors.push(e); else throw e; }
+  }
+  program.cueValues = env.cues;
+  if (durationExpr) {
+    try {
+      const v = constEval(durationExpr.expr, durationExpr.line, env, 'duration');
+      if (!(v > 0)) throw new XytError(durationExpr.line, 'duration must be a positive number of seconds');
+      if (program.duration === null) program.duration = Math.min(v, 3600);
+    } catch (e) { if (e.xyt) program.errors.push(e); else throw e; }
+  }
+  env.duration = program.duration;
+  for (const s of exprScenes) {
+    try {
+      s.start = constEval(s.startExpr, s.line, env, 'a scene time');
+      s.end = constEval(s.endExpr, s.line, env, 'a scene time');
+      if (!(s.end > s.start)) throw new XytError(s.line, `this scene ends (${+s.end.toFixed(3)} s) before it starts (${+s.start.toFixed(3)} s)`);
+    } catch (e) {
+      if (!e.xyt) throw e;
+      program.errors.push(e);
+      s.start = 0; s.end = 1;
+    }
+  }
   if (program.duration === null) {
     const ends = root.body.filter((b) => b.k === 'scene').map((b) => b.end);
     program.duration = ends.length ? Math.max(...ends) : 4;

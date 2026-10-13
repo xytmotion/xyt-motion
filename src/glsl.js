@@ -54,6 +54,8 @@ vec3 hsl(float h, float s, float l){ s = clamp(s, 0.0, 1.0); l = clamp(l, 0.0, 1
 
 // rotate the sampling point so the shape turns clockwise on screen (y points down)
 vec2 rot(vec2 p, float deg){ float a = radians(deg); float c = cos(a); float s = sin(a); return vec2(c*p.x + s*p.y, -s*p.x + c*p.y); }
+// the other way round: where a point drawn inside a transform (group, camera, define call) appears outside it
+vec2 fwd(vec2 p, vec2 c, float s, float f, float deg, vec2 d){ p -= c; p.x *= f; p *= s; return rot(p, -deg) + c + d; }
 
 float sdBox(vec2 p, vec2 b, float r, float deg){ p = rot(p, deg); b = abs(b); r = clamp(r, 0.0, min(b.x, b.y));
   vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }

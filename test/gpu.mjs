@@ -49,6 +49,19 @@ const FEATURES = {
     'repeat i 3', '  bell cx=0.4 + i * 0.5 angle=35 * spring(t - 0.5 - i * 0.7, 1.2, 1.5) scale=1 + 0.2 * hits(t, 1, 2, 3)', 'end',
     'group cx=1.2 cy=0.75 scale=-0.8 dx=0.05 * sin(t)', '  clip rect cx=1.2 cy=0.75 w=0.6 h=0.2 radius=0.05 stroke=0.03', '    fill hsl(x * 300 + t * 90, 0.8, 0.6)', '  end', 'end',
     'clip circle cx=aspect / 2 cy=0.5 r=0.25 invert=0.6 blur=0.05', '  repeat k 4', '    camera zoom=1 + k * 0.1', '    ring r=0.1 + k * 0.05 width=0.01 color=white alpha=hits(t, 0.5, 1.5)', '  end', 'end'].join('\n'),
+  // 0.4: fn, anchors and attach, bounds, sim, smooth, cues, bar(), tracks, depth and shake
+  'fn-anchors.xyt': ['canvas 16:9', 'fn wave(a, k) = 0.5 + 0.1 * sin(a * 6 + k)', 'fn shade(c, k)', '  let m = clamp(k)', '  return mix(c, black, m)', 'end',
+    'define kid cx=0.5 cy=0.8 s=1 reach=0', '  bounds cx=cx cy=cy - 0.25 * s r=0.4 * s', '  circle cx=cx cy=cy - 0.2 * s r=0.1 * s color=shade(gold, y - 0.5)',
+    '  group cx=cx cy=cy - 0.25 * s angle=reach', '    line x1=cx y1=cy - 0.25 * s x2=cx + 0.2 * s y2=cy - 0.25 * s width=0.02 * s', '    anchor hand x=cx + 0.2 * s y=cy - 0.25 * s angle=reach', '  end', 'end',
+    'define boat cx=0.5 cy=0.5 s=1', '  tri x1=cx - 0.05 * s y1=cy x2=cx + 0.05 * s y2=cy x3=cx y3=cy - 0.07 * s color=white', 'end',
+    'fill mix(navy, sky, wave(x, t))', 'repeat i 3', '  kid name=k cx=0.4 + i * 0.5 reach=-40 * sin(t + i) flip=1 - 2 * (i == 1)', '  boat attach=k.hand s=0.6 angle=k.hand.angle', 'end'].join('\n'),
+  'sim-camera.xyt': ['canvas 16:9', 'bpm 120 offset=0.25', 'cue bump 1.5', 'track level step=0.25 0 0.4 1 0.6 0.3 0.8 0.2 0.5 0.1', 'duration 4',
+    'sim ball', '  state x = 0.3', '  state y = 0.2', '  state vy = 0', '  vy += 2.5 * dt', '  y += vy * dt', '  x += 0.25 * dt', '  if y > 0.8 && vy > 0', '    y = 0.8', '    vy = -0.7 * vy', '  end', 'end',
+    'fill mix(#1b1f4a, #ffb35c, y)',
+    'scene 0 bump', '  camera cx=smooth(ball.x, 0.6) cy=0.5 zoom=1.2 dx=aspect / 2 - smooth(ball.x, 0.6) shake=0.03 * hits(t, bump)',
+    '  group depth=4', '    circle cx=1.2 cy=0.25 r=0.12 color=white', '  end',
+    '  circle cx=ball.x cy=ball.y r=0.03 + 0.02 * level color=orange', 'end',
+    'scene bump bar(9)', '  camera zoom=1 + 0.1 * pulse', '  ring cx=aspect / 2 r=0.2 + 0.1 * level width=0.02', 'end'].join('\n'),
 };
 
 // SwiftShader draws on the CPU, so long shaders (the karaoke lyrics) take many seconds to compile on CI:
@@ -111,6 +124,24 @@ const SAME = [
   ['define call angle', 'rect cx=0.3 cy=0.4 w=0.2 h=0.05 angle=45', 'define bar cx=0.5 cy=0.5\n  rect cx=cx cy=cy w=0.2 h=0.05\nend\nbar cx=0.3 cy=0.4 angle=45'],
   ['clip', 'fill navy\nrect w=0.5 h=0.5 color=red', 'fill navy\nclip rect w=0.5 h=0.5\n  fill red\nend'],
   ['clip invert', 'fill black\nrect w=0.5 h=0.5 color=red', 'fill red\nclip rect w=0.5 h=0.5 invert=1\n  fill black\nend'],
+  // 0.4: each of these must land exactly where the plain drawing is
+  ['fn', 'circle cx=0.6 cy=0.4 r=0.1', 'fn half(a) = a / 2\ncircle cx=half(1.2) cy=half(0.8) r=half(0.2)'],
+  ['attach to an anchor turned with its group (clockwise)', 'circle cx=0.7 cy=0.5 r=0.05', 'define arm cx=0.5 cy=0.5\n  group cx=cx cy=cy angle=90\n    anchor tip x=cx y=cy - 0.2\n  end\nend\narm name=a\ncircle attach=a.tip r=0.05'],
+  ['attach follows the call\'s flip and scale', 'circle cx=0.3 cy=0.4 r=0.05', 'define arm cx=0.5 cy=0.5\n  anchor tip x=cx + 0.1 y=cy - 0.05\nend\narm name=a scale=2 flip=-1\ncircle attach=a.tip r=0.05'],
+  ['bounds draw the same picture', 'define d cx=0.5\n  circle cx=cx r=0.1\n  ring cx=cx r=0.15 width=0.02\nend\nd cx=0.3\nd cx=0.7',
+    'define d cx=0.5\n  bounds cx=cx cy=0.5 r=0.17\n  circle cx=cx r=0.1\n  ring cx=cx r=0.15 width=0.02\nend\nd cx=0.3\nd cx=0.7'],
+  ['depth divides the camera\'s movement', 'circle cx=0.6 r=0.1', 'camera dx=0.2\ngroup depth=2\n  circle r=0.1\nend'],
+  ['depth softens the camera\'s zoom', 'camera zoom=2\ncircle r=0.1', 'camera zoom=4\ngroup depth=2\n  circle r=0.1\nend'],
+  ['a sim state reaches the shader at its time', 'circle cy=0.3 r=0.1', 'sim s\n  state y = 0.2\n  y += 0.1 * dt\nend\ncircle cy=s.y r=0.1'],
+  ['a track reaches the shader at its time', 'circle r=0.1', 'track k step=1 0.2 0.4\ncircle r=0.25 * k'],
+  ['smooth of a still value is that value', 'circle cx=0.3 r=0.1', 'let k = smooth(0.3, 0.5)\ncircle cx=k r=0.1'],
+  // found in review: a named drawing or bounds must leave the camera as it found it, and anchors follow depth
+  ['a named drawing with a camera inside changes nothing after it', 'define kid cx=0.5 cy=0.5\n  camera zoom=2 cx=cx cy=cy\n  circle cx=cx cy=cy r=0.01\n  anchor hand x=cx y=cy\nend\nkid cx=0.3\ncircle cx=0.7 cy=0.5 r=0.05 color=red',
+    'define kid cx=0.5 cy=0.5\n  camera zoom=2 cx=cx cy=cy\n  circle cx=cx cy=cy r=0.01\n  anchor hand x=cx y=cy\nend\nkid name=k cx=0.3\ncircle cx=0.7 cy=0.5 r=0.05 color=red'],
+  ['bounds after a camera change nothing after the drawing', 'define d cx=0.5 cy=0.5\n  camera zoom=2 cx=cx cy=cy\n  circle cx=cx cy=cy r=0.02\nend\nd cx=0.2\ncircle cx=0.7 cy=0.5 r=0.05 color=red',
+    'define d cx=0.5 cy=0.5\n  camera zoom=2 cx=cx cy=cy\n  bounds cx=cx cy=cy r=0.05\n  circle cx=cx cy=cy r=0.02\nend\nd cx=0.2\ncircle cx=0.7 cy=0.5 r=0.05 color=red'],
+  ['anchors inside a depth group follow the depth', 'define d cx=0.5 cy=0.5\n  group\n    camera dx=0.2\n    group depth=2\n      circle cx=cx cy=cy r=0.03 color=red\n      anchor a x=cx y=cy\n    end\n  end\nend\nd cx=0.3\ncircle cx=0.4 cy=0.5 r=0.012 color=blue',
+    'define d cx=0.5 cy=0.5\n  group\n    camera dx=0.2\n    group depth=2\n      circle cx=cx cy=cy r=0.03 color=red\n      anchor a x=cx y=cy\n    end\n  end\nend\nd name=k cx=0.3\ncircle attach=k.a r=0.012 color=blue'],
 ];
 // Curves against a 48-piece polyline of the same curve: edges differ a little where the pieces overlap, but
 // a hole or a stray pixel from the cubic solution would differ by more than half the range. Nearly
@@ -160,6 +191,31 @@ for (const [label, a, b] of SAME) {
   const ok = r.off === 0;
   if (!ok) failed++;
   console.log(`${ok ? 'pass' : 'FAIL'}  ${label}${ok ? '' : `  (${r.off} channel values differ, by up to ${r.max})`}`);
+}
+
+// A program split into one shader per stretch of time draws what the single shader draws, at every
+// stretch, including while two scenes cross-fade.
+{
+  const src = FEATURES['sim-camera.xyt'] + '\n' + 'define a cx=0.5\n  circle cx=cx r=0.2 color=red\nend\nscene 0.5 2.5 fade=0.5\n  a cx=0.6\nend';
+  const r = await page.evaluate(({ src }) => {
+    const draw = (split) => {
+      const player = new XYT.Player(document.getElementById('c'), { autoplay: false, adaptive: false, pauseWhenHidden: false, preserveDrawingBuffer: true, split });
+      const res = player.load(src);
+      if (!res.ok) throw new Error(JSON.stringify(res.errors));
+      player.setSize(192, 108);
+      const frames = [0.2, 0.7, 1.4, 1.6, 2.3, 3.5].map((t) => player.renderAt(t).readPixels());
+      const parts = res.parts ? res.parts.length : 1;
+      player.destroy();
+      return { frames, parts };
+    };
+    const a = draw(false), b = draw(true);
+    let off = 0;
+    a.frames.forEach((pa, k) => { const pb = b.frames[k]; for (let i = 0; i < pa.length; i++) if (Math.abs(pa[i] - pb[i]) > 2) off++; });
+    return { off, parts: b.parts };
+  }, { src });
+  const ok = r.off === 0 && r.parts > 1;
+  if (!ok) failed++;
+  console.log(`${ok ? 'pass' : 'FAIL'}  ${r.parts} shaders by time draw what one shader draws${ok ? '' : `  (${r.off} channel values differ)`}`);
 }
 
 // <xyt-player> in a real page: which program it loads, and which frame it shows when still.
